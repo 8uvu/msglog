@@ -13,8 +13,8 @@
             "versions": {
                 "1.1.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.0.zip",
-                    "sha256": "f41991386df37f2422d80a516e0b64409c777ec621a81c6068502ccd9dd49d12",
-                    "size": 5262,
+                    "sha256": "92ca0cc687c8d8e444ee3451e55ca5236237718018df34b01d7be8b8e944b617",
+                    "size": 5869,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
