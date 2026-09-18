@@ -26,7 +26,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// D:/Revenge plugins/message-logger/js/index.tsx
+// js/index.tsx
 var index_exports = {};
 __export(index_exports, {
   default: () => index_default
@@ -40,32 +40,47 @@ var import_design = (revenge.discord.design);
 var import_flux = (revenge.discord.flux);
 var import_native = (revenge.discord.native);
 var import_jsx_runtime = (({ jsx: revenge.react.ReactJSXRuntime.jsx, jsxs: revenge.react.ReactJSXRuntime.jsxs, Fragment: revenge.react.ReactJSXRuntime.Fragment }));
-var LOG_FILE = "message-logger/logs.json";
+var LOG_FILE = "message-logger.json";
 var log = {};
-var logDir = "";
+var docRoot = "";
 var flushTimer = null;
 var apiRef = null;
 function logPath() {
-  return logDir + "/" + LOG_FILE;
+  return (docRoot.length ? docRoot.replace(/\/+$/, "") + "/" : "") + LOG_FILE;
 }
-async function loadLog(logger) {
+function cacheOf(jsonStorage) {
   var _a;
   try {
-    logDir = import_native.FileModule.getConstants().DocumentsDirPath;
+    if (jsonStorage && typeof jsonStorage.get === "function") {
+      const v = jsonStorage.get();
+      if (v && typeof v === "object") return v;
+    }
+  } catch {
+  }
+  return (_a = jsonStorage == null ? void 0 : jsonStorage.cache) != null ? _a : {};
+}
+async function loadLog(logger) {
+  var _a, _b, _c;
+  try {
+    docRoot = String((_a = import_native.FileModule.getConstants().DocumentsDirPath) != null ? _a : "");
     const raw = await import_native.FileModule.readFile(logPath(), "utf8");
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") log = parsed;
+    (_b = logger == null ? void 0 : logger.log) == null ? void 0 : _b.call(logger, "MessageLogger: loaded " + Object.keys(log).length + " entries");
   } catch (e) {
     log = {};
-    (_a = logger == null ? void 0 : logger.log) == null ? void 0 : _a.call(logger, "MessageLogger: starting with an empty log");
+    (_c = logger == null ? void 0 : logger.log) == null ? void 0 : _c.call(logger, "MessageLogger: starting with an empty log");
   }
 }
-async function persistLog() {
-  var _a, _b;
+async function persistLog(jsonStorage) {
+  var _a, _b, _c, _d;
   try {
+    const cfg = readCfg(jsonStorage);
     await import_native.FileModule.writeFile("documents", LOG_FILE, JSON.stringify(log), "utf8");
+    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.log) == null ? void 0 : _b.call(_a, "MessageLogger: saved " + Object.keys(log).length + " entries");
+    void cfg;
   } catch (e) {
-    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.error) == null ? void 0 : _b.call(_a, "MessageLogger: failed to write log file");
+    (_d = (_c = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _c.error) == null ? void 0 : _d.call(_c, "MessageLogger: failed to write log file", e instanceof Error ? e.message : String(e));
   }
 }
 function prune(max) {
@@ -106,6 +121,7 @@ function snapshotOf(message, me) {
     channelId: String((_d = (_c = message == null ? void 0 : message.channelId) != null ? _c : message == null ? void 0 : message.channel_id) != null ? _d : ""),
     authorId: String((_e = author == null ? void 0 : author.id) != null ? _e : ""),
     authorTag: (author == null ? void 0 : author.globalName) || (author == null ? void 0 : author.username) || "Unknown",
+    bot: !!(author == null ? void 0 : author.bot),
     content: String((_f = message == null ? void 0 : message.content) != null ? _f : ""),
     attachments: Array.isArray(message == null ? void 0 : message.attachments) ? message.attachments.map((a) => {
       var _a2, _b2;
@@ -133,15 +149,17 @@ function toastGhostPing(entry) {
   }
 }
 function handleCreate(payload, cfg) {
-  var _a, _b, _c, _d;
+  var _a, _b;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
   if (!cfg.enabled) return;
   const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
   if (inList(channelId, cfg.ignoredChannels)) return;
-  const authorId = String((_d = (_c = message == null ? void 0 : message.author) == null ? void 0 : _c.id) != null ? _d : "");
-  if (authorId && inList(authorId, cfg.ignoredUsers)) return;
-  seen.set(String(message.id), snapshotOf(message, currentUserId()));
+  const snap = snapshotOf(message, currentUserId());
+  if (cfg.ignoreBots && snap.bot) return;
+  if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) return;
+  if (inList(snap.authorId, cfg.ignoredUsers)) return;
+  seen.set(snap.id, snap);
   if (seen.size > cfg.maxStored * 4) {
     const first = seen.keys().next();
     if (!first.done) seen.delete(first.value);
@@ -154,16 +172,36 @@ function handleDelete(payload, cfg) {
   const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
   if (!id || inList(channelId, cfg.ignoredChannels)) return;
   const snap = (_h = seen.get(id)) != null ? _h : { ...snapshotOf((_g = payload == null ? void 0 : payload.message) != null ? _g : { id, channelId }, currentUserId()) };
+  if (cfg.ignoreBots && snap.bot) {
+    seen.delete(id);
+    return;
+  }
+  if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) {
+    seen.delete(id);
+    return;
+  }
   if (inList(snap.authorId, cfg.ignoredUsers)) {
     seen.delete(id);
     return;
   }
   seen.delete(id);
   const ghost = cfg.ghostPings && snap.mentionsMe;
-  log[id] = { ...snap, status: "deleted", edits: (_j = (_i = log[id]) == null ? void 0 : _i.edits) != null ? _j : [], mentionsMe: snap.mentionsMe, ghostPing: ghost };
+  log[id] = {
+    ...snap,
+    status: "deleted",
+    edits: (_j = (_i = log[id]) == null ? void 0 : _i.edits) != null ? _j : [],
+    mentionsMe: snap.mentionsMe,
+    ghostPing: ghost
+  };
   prune(cfg.maxStored);
   persistLog();
   if (ghost) toastGhostPing(log[id]);
+}
+function handleDeleteBulk(payload, cfg) {
+  const ids = Array.isArray(payload == null ? void 0 : payload.ids) ? payload.ids : [];
+  for (const id of ids) {
+    handleDelete({ message: { id, channelId: payload == null ? void 0 : payload.channelId } }, cfg);
+  }
 }
 function handleUpdate(payload, cfg) {
   var _a, _b, _c, _d;
@@ -175,14 +213,18 @@ function handleUpdate(payload, cfg) {
   if (inList(channelId, cfg.ignoredChannels)) return;
   const prev = seen.get(id);
   const snap = snapshotOf(message, currentUserId());
+  if (cfg.ignoreBots && snap.bot) return;
+  if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) return;
   if (inList(snap.authorId, cfg.ignoredUsers)) return;
   seen.set(id, snap);
-  const oldContent = prev && prev.content !== snap.content ? prev.content : null;
+  const prevContent = prev && typeof prev.content === "string" ? prev.content : null;
+  const isRealEdit = prevContent !== null && message.edited_timestamp && prevContent !== snap.content;
+  if (!isRealEdit && !log[id]) return;
   const existing = log[id];
   log[id] = {
     ...snap,
     status: "edited",
-    edits: [...(_c = existing == null ? void 0 : existing.edits) != null ? _c : [], ...oldContent ? [oldContent] : []].slice(-10),
+    edits: [...(_c = existing == null ? void 0 : existing.edits) != null ? _c : [], ...isRealEdit && prevContent !== null ? [prevContent] : []].slice(-10),
     mentionsMe: snap.mentionsMe,
     ghostPing: (_d = existing == null ? void 0 : existing.ghostPing) != null ? _d : false
   };
@@ -190,17 +232,35 @@ function handleUpdate(payload, cfg) {
   persistLog();
 }
 function readCfg(jsonStorage) {
-  var _a, _b, _c, _d, _e;
-  const c = (_a = jsonStorage == null ? void 0 : jsonStorage.cache) != null ? _a : {};
+  const c = cacheOf(jsonStorage);
   return {
-    enabled: (_b = c.enabled) != null ? _b : true,
-    logDeletes: (_c = c.logDeletes) != null ? _c : true,
-    logEdits: (_d = c.logEdits) != null ? _d : true,
-    ghostPings: (_e = c.ghostPings) != null ? _e : true,
+    enabled: c.enabled !== false,
+    logDeletes: c.logDeletes !== false,
+    logEdits: c.logEdits !== false,
+    ghostPings: c.ghostPings !== false,
+    ignoreBots: c.ignoreBots !== false,
+    ignoreSelf: !!c.ignoreSelf,
     maxStored: typeof c.maxStored === "number" ? c.maxStored : 300,
     ignoredChannels: typeof c.ignoredChannels === "string" ? c.ignoredChannels : "",
     ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : ""
   };
+}
+function register(cleanup, logger, jsonStorage, event, handler) {
+  try {
+    cleanup(
+      (0, import_flux.onFluxEventDispatched)(event, (payload) => {
+        try {
+          handler(payload, readCfg(jsonStorage));
+        } catch (e) {
+          logger.error(`[MessageLogger] ${event} handler failed: ` + (e instanceof Error ? e.message : String(e)));
+        }
+        return payload;
+      })
+    );
+    logger.log(`[MessageLogger] registered ${event}`);
+  } catch (e) {
+    logger.error(`[MessageLogger] could not register ${event}: ` + (e instanceof Error ? e.message : String(e)));
+  }
 }
 var index_default = plugin({
   jsonStorage: {
@@ -210,68 +270,59 @@ var index_default = plugin({
       logDeletes: true,
       logEdits: true,
       ghostPings: true,
+      ignoreBots: true,
+      ignoreSelf: false,
       maxStored: 300,
       ignoredChannels: "",
       ignoredUsers: ""
     }
   },
   async start({ cleanup, jsonStorage, logger }) {
-    apiRef = { logger };
-    await loadLog(logger);
-    cleanup(
-      (0, import_flux.onFluxEventDispatched)("MESSAGE_CREATE", (payload) => {
-        try {
-          handleCreate(payload, readCfg(jsonStorage));
-        } catch (e) {
-          logger.error("create handler failed");
-        }
-        return payload;
-      }),
-      (0, import_flux.onFluxEventDispatched)("MESSAGE_DELETE", (payload) => {
-        try {
-          handleDelete(payload, readCfg(jsonStorage));
-        } catch (e) {
-          logger.error("delete handler failed");
-        }
-        return payload;
-      }),
-      (0, import_flux.onFluxEventDispatched)("MESSAGE_UPDATE", (payload) => {
-        try {
-          handleUpdate(payload, readCfg(jsonStorage));
-        } catch (e) {
-          logger.error("update handler failed");
-        }
-        return payload;
-      }),
-      () => {
+    try {
+      apiRef = { logger };
+      await loadLog(logger);
+      register(cleanup, logger, jsonStorage, "MESSAGE_CREATE", handleCreate);
+      register(cleanup, logger, jsonStorage, "MESSAGE_DELETE", handleDelete);
+      register(cleanup, logger, jsonStorage, "MESSAGE_DELETE_BULK", handleDeleteBulk);
+      register(cleanup, logger, jsonStorage, "MESSAGE_UPDATE", handleUpdate);
+      cleanup(() => {
         if (flushTimer) {
           clearTimeout(flushTimer);
           flushTimer = null;
         }
-        persistLog();
+        persistLog(jsonStorage);
         seen.clear();
         apiRef = null;
+      });
+      logger.log("MessageLogger started");
+      try {
+        import_actions.ToastActionCreators.open({ key: "msglogger-start", content: "MessageLogger started" });
+      } catch {
       }
-    );
-    logger.log("MessageLogger started");
+    } catch (e) {
+      logger.error("[MessageLogger] start failed: " + (e instanceof Error ? e.message : String(e)));
+    }
   },
   SettingsComponent({ api }) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const settings = api.jsonStorage.use();
     const [entries, setEntries] = (0, import_react.useState)([]);
     const [filter, setFilter] = (0, import_react.useState)("all");
     const [query, setQuery] = (0, import_react.useState)("");
     const [refreshTick, setRefreshTick] = (0, import_react.useState)(0);
     const reload = async () => {
-      var _a2;
+      const merged = {};
       try {
         const raw = await import_native.FileModule.readFile(logPath(), "utf8");
-        const list = Object.values((_a2 = JSON.parse(raw)) != null ? _a2 : {});
-        list.sort((a, b) => b.timestamp - a.timestamp);
-        setEntries(list.slice(0, 100));
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          for (const [k, v] of Object.entries(parsed)) merged[k] = v;
+        }
       } catch {
-        setEntries([]);
       }
+      for (const [k, v] of Object.entries(log)) merged[k] = v;
+      const list = Object.values(merged).sort((a, b) => b.timestamp - a.timestamp);
+      setEntries(list.slice(0, 100));
     };
     (0, import_react.useEffect)(() => {
       reload();
@@ -286,29 +337,27 @@ var index_default = plugin({
       return true;
     });
     const removeEntry = async (id) => {
-      var _a2;
       try {
-        const raw = await import_native.FileModule.readFile(logPath(), "utf8");
-        const obj = (_a2 = JSON.parse(raw)) != null ? _a2 : {};
-        delete obj[id];
         delete log[id];
-        await import_native.FileModule.writeFile("documents", LOG_FILE, JSON.stringify(obj), "utf8");
+        await persistLog();
         reload();
       } catch {
       }
     };
     const exportLog = async () => {
       try {
-        const raw = await import_native.FileModule.readFile(logPath(), "utf8");
-        import_clipboard.default.setString(typeof raw === "string" ? raw : JSON.stringify(raw));
+        import_clipboard.default.setString(JSON.stringify(Object.values(log), null, 2));
         import_actions.ToastActionCreators.open({ key: "msglogger-export", content: "Log copied to clipboard" });
-      } catch {
+      } catch (e) {
         import_actions.ToastActionCreators.open({ key: "msglogger-export-fail", content: "Export failed \u2014 see log file" });
       }
     };
     const clearLog = async () => {
       log = {};
-      await persistLog();
+      try {
+        await import_native.FileModule.writeFile("documents", LOG_FILE, "{}", "utf8");
+      } catch {
+      }
       reload();
     };
     const tab = (key, label) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Pressable, { onPress: () => setFilter(key), style: { paddingVertical: 8, paddingHorizontal: 10 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Text, { style: { fontWeight: filter === key ? "bold" : "normal" }, children: label }) }, key);
@@ -345,6 +394,44 @@ var index_default = plugin({
             subLabel: "Toast when a message mentioning you is deleted",
             value: (_d = settings == null ? void 0 : settings.ghostPings) != null ? _d : true,
             onValueChange: (v) => api.jsonStorage.set({ ghostPings: v })
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          TableSwitchRow,
+          {
+            label: "Ignore bot messages",
+            value: (_e = settings == null ? void 0 : settings.ignoreBots) != null ? _e : true,
+            onValueChange: (v) => api.jsonStorage.set({ ignoreBots: v })
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          TableSwitchRow,
+          {
+            label: "Ignore your own messages",
+            value: (_f = settings == null ? void 0 : settings.ignoreSelf) != null ? _f : false,
+            onValueChange: (v) => api.jsonStorage.set({ ignoreSelf: v })
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TableRowGroup, { title: "Ignored IDs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DText, { children: "Comma-separated channel IDs never get logged." }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          import_react_native.TextInput,
+          {
+            placeholder: "Channel IDs",
+            defaultValue: (_g = settings == null ? void 0 : settings.ignoredChannels) != null ? _g : "",
+            onChangeText: (t) => api.jsonStorage.set({ ignoredChannels: t }),
+            style: { padding: 8 }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DText, { children: "Comma-separated user IDs never get logged." }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          import_react_native.TextInput,
+          {
+            placeholder: "User IDs",
+            defaultValue: (_h = settings == null ? void 0 : settings.ignoredUsers) != null ? _h : "",
+            onChangeText: (t) => api.jsonStorage.set({ ignoredUsers: t }),
+            style: { padding: 8 }
           }
         )
       ] }),
