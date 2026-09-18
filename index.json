@@ -12,7 +12,7 @@
       },
       "versions": {
         "1.0.0": {
-          "url": "https://epitaphv.github.io/msglog/pool/dev.8uvu.message-logger@1.0.0.zip",
+          "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.0.0.zip",
           "sha256": "5040747f943ddc38ec7271a6a15b8618f45f599a88f92b510539195f6bd6eb97",
           "size": 3755,
           "dependencies": {
@@ -25,7 +25,7 @@
           }
         },
         "1.1.0": {
-          "url": "https://epitaphv.github.io/msglog/pool/dev.8uvu.message-logger@1.1.0.zip",
+          "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.0.zip",
           "sha256": "7637bc6b0b8a67b03968f0543b42e18b9a1967b0b7a4c13b58972e3e8860162c",
           "size": 5099,
           "dependencies": {
