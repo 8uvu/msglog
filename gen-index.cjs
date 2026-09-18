@@ -1,14 +1,14 @@
 const { createHash } = require('node:crypto');
-const { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, unlinkSync, renameSync } = require('node:fs');
+const { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, renameSync } = require('node:fs');
 const { unzipSync } = require('C:\\Users\\Epitaph\\Equicord\\node_modules\\.pnpm\\fflate@0.8.3\\node_modules\\fflate\\lib\\node.cjs');
 
 const repoDir = 'D:\\Revenge plugins\\repo';
 const baseUrl = (process.argv[2] || 'https://<user>.github.io/<repo>').replace(/\/$/, '');
 
-mkdirSync(repoDir + '\\pool', { recursive: true });
+mkdirSync(repoDir, { recursive: true });
 
 const distZips = readdirSync('D:\\Revenge plugins\\message-logger').filter(f => f.endsWith('.zip'));
-for (const z of distZips) copyFileSync('D:\\Revenge plugins\\message-logger\\' + z, repoDir + '\\pool\\' + z);
+for (const z of distZips) copyFileSync('D:\\Revenge plugins\\message-logger\\' + z, repoDir + '\\' + z);
 
 function readManifestFromZip(zipPath) {
     const bytes = readFileSync(zipPath);
@@ -19,26 +19,24 @@ function readManifestFromZip(zipPath) {
 }
 
 const plugins = {};
-const poolFiles = readdirSync(repoDir + '\\pool').filter(f => f.endsWith('.zip')).sort();
+const poolFiles = readdirSync(repoDir).filter(f => f.endsWith('.zip')).sort();
 for (const file of poolFiles) {
     const m = /^([^@/\\]+)@([^@/\\]+)\.zip$/.exec(file);
     if (!m) throw new Error('Bad pool file name: ' + file);
-    const manifest = readManifestFromZip(repoDir + '\\pool\\' + file);
-    // Validate filename matches manifest content
+    const manifest = readManifestFromZip(repoDir + '\\' + file);
     const claimedId = m[1];
     const claimedVer = m[2];
     if (claimedId !== manifest.id || claimedVer !== manifest.version) {
-        // Rename the pool file to match the manifest id
         const correctName = `${manifest.id}@${manifest.version}.zip`;
         if (file !== correctName) {
-            renameSync(repoDir + '\\pool\\' + file, repoDir + '\\pool\\' + correctName);
+            renameSync(repoDir + '\\' + file, repoDir + '\\' + correctName);
         }
     }
     const id = manifest.id;
     const version = manifest.version;
-    const bytes = readFileSync(repoDir + '\\pool\\' + id + '@' + version + '.zip');
+    const bytes = readFileSync(repoDir + '\\' + id + '@' + version + '.zip');
     const entry = {
-        url: `${baseUrl}/pool/${id}@${version}.zip`,
+        url: `${baseUrl}/${id}@${version}.zip`,
         sha256: createHash('sha256').update(bytes).digest('hex'),
         size: bytes.length,
         dependencies: Object.fromEntries(
