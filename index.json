@@ -1,0 +1,30 @@
+{
+    "format": 1,
+    "name": "msglog",
+    "description": "Revenge plugins by 8uvu",
+    "plugins": {
+        "dev.8uvu.message-logger": {
+            "name": "MessageLogger",
+            "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
+            "author": "8uvu",
+            "channels": {
+                "latest": "1.1.0"
+            },
+            "versions": {
+                "1.1.0": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.0.zip",
+                    "sha256": "c326ec9ccec61426e8c6d4371b32106a86e0ac39a8d23dd94acaa57786f7abc6",
+                    "size": 5262,
+                    "dependencies": {
+                        "revenge.api": {
+                            "version": ">=1"
+                        },
+                        "discord": {
+                            "version": "*"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
