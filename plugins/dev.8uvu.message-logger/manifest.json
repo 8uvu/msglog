@@ -1,7 +1,15 @@
 {
-    "name": "Message Logger",
-    "description": "Saves deleted and edited messages to a persistent on-device log.",
-    "authors": [{ "name": "8uvu", "id": "0" }],
-    "main": "src/index.js",
-    "vendetta": { "icon": "ic_badge_staff" }
+    "format": 1,
+    "id": "dev.8uvu.message-logger",
+    "name": "MessageLogger",
+    "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
+    "author": "8uvu",
+    "version": "1.1.0",
+    "dependencies": {
+        "revenge.api": { "version": ">=1" },
+        "discord": { "version": "*" }
+    },
+    "dist": {
+        "script": "index.js"
+    }
 }
