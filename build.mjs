@@ -21,6 +21,17 @@ for (let plug of await readdir("./plugins", { withFileTypes: true })) {
     const script = (manifest.dist && manifest.dist.script) || manifest.main || "index.js";
     const bundle = await readFile(`./plugins/${name}/src/${script}`);
 
+    // Hybrid manifest: `main`/`hash`/`authors`/`vendetta` keep the direct
+    // folder-URL install working on vendetta-style clients, while the new
+    // format fields wire up jsonStorage/settings on current Revenge builds.
+    const deployed = {
+        ...manifest,
+        main: script,
+        hash: createHash("sha256").update(bundle).digest("hex"),
+        authors: [{ name: manifest.author ?? "Unknown" }],
+        vendetta: { icon: "ic_chat_bubble" },
+    };
+
     const zipName = `${id}@${version}.zip`;
     const zip = zipSync({
         "manifest.json": strToU8(JSON.stringify(manifest, null, 4)),
@@ -47,9 +58,29 @@ for (let plug of await readdir("./plugins", { withFileTypes: true })) {
 
     await mkdir(`./dist/${id}`, { recursive: true });
     await copyFile(`./plugins/${name}/src/${script}`, `./dist/${id}/index.js`);
-    await writeFile(`./dist/${id}/manifest.json`, JSON.stringify(manifest, null, 4));
+    await writeFile(`./dist/${id}/manifest.json`, JSON.stringify(deployed, null, 4));
 
     console.log(`Packaged ${id}@${version} (${zip.length} bytes) -> pool/${zipName}`);
+}
+
+// Root-level plugin install: pasting https://8uvu.github.io/msglog/ straight
+// into Revenge's plugin URL box fetches <root>/manifest.json then <root>/index.js.
+const primary = plugins[0];
+if (primary) {
+    const { manifest } = primary;
+    const script = (manifest.dist && manifest.dist.script) || manifest.main || "index.js";
+    const rootDeployed = {
+        ...manifest,
+        main: script,
+        hash: createHash("sha256").update(
+            await readFile(`./plugins/${primary.id}/src/${script}`),
+        ).digest("hex"),
+        authors: [{ name: manifest.author ?? "Unknown" }],
+        vendetta: { icon: "ic_chat_bubble" },
+    };
+    await copyFile(`./plugins/${primary.id}/src/${script}`, `./dist/index.js`);
+    await writeFile(`./dist/manifest.json`, JSON.stringify(rootDeployed, null, 4));
+    console.log(`Root plugin install: index.js + manifest.json`);
 }
 
 const output = {};
