@@ -1,0 +1,1 @@
+{"name":"Message Logger","description":"Saves deleted and edited messages to a persistent on-device log.","authors":[{"name":"8uvu","id":"0"}],"main":"index.js","vendetta":{"icon":"ic_badge_staff"},"hash":"6dbd78de70369d44f9fc971145220aec511ff34282a57355174e8e6fac0aed77"}
