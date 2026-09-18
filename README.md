@@ -7,12 +7,7 @@ Custom Revenge plugins by 8uvu.
 ### Message Logger
 Saves deleted and edited messages to a persistent on-device log.
 
-**Install:** Add this repository URL in Revenge (Settings > Revenge > Plugins):
-```
-https://8uvu.github.io/msglog/
-```
-
-Or install the plugin directly:
+**Install:** Add this plugin URL in Revenge (Settings > Revenge > Plugins):
 ```
 https://8uvu.github.io/msglog/dev.8uvu.message-logger/
 ```
