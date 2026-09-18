@@ -5,8 +5,6 @@ const { unzipSync } = require('C:\\Users\\Epitaph\\Equicord\\node_modules\\.pnpm
 const repoDir = 'D:\\Revenge plugins\\repo';
 const baseUrl = (process.argv[2] || 'https://<user>.github.io/<repo>').replace(/\/$/, '');
 
-mkdirSync(repoDir, { recursive: true });
-
 const distZips = readdirSync('D:\\Revenge plugins\\message-logger').filter(f => f.endsWith('.zip'));
 for (const z of distZips) copyFileSync('D:\\Revenge plugins\\message-logger\\' + z, repoDir + '\\' + z);
 
