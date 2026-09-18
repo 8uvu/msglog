@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "name": "8uvu's plugins",
+  "description": "Custom Revenge plugins by 8uvu.",
+  "plugins": {
+    "dev.8uvu.message-logger": {
+      "name": "MessageLogger",
+      "description": "Saves deleted and edited messages to a persistent on-device log that survives app restarts and force-closes.",
+      "author": "8uvu",
+      "channels": {
+        "latest": "1.1.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://8uvu.github.io/revenge-repo/pool/dev.8uvu.message-logger@1.0.0.zip",
+          "sha256": "5040747f943ddc38ec7271a6a15b8618f45f599a88f92b510539195f6bd6eb97",
+          "size": 3755,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.1.0": {
+          "url": "https://8uvu.github.io/revenge-repo/pool/dev.8uvu.message-logger@1.1.0.zip",
+          "sha256": "7637bc6b0b8a67b03968f0543b42e18b9a1967b0b7a4c13b58972e3e8860162c",
+          "size": 5099,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    }
+  }
+}
