@@ -1,51 +1,30 @@
 const { createHash } = require('node:crypto');
-const { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, renameSync } = require('node:fs');
-const { unzipSync } = require('C:\\Users\\Epitaph\\Equicord\\node_modules\\.pnpm\\fflate@0.8.3\\node_modules\\fflate\\lib\\node.cjs');
+const { readFileSync, writeFileSync, readdirSync, statSync } = require('node:fs');
 
-const repoDir = 'D:\\Revenge plugins\\repo';
-const baseUrl = (process.argv[2] || 'https://<user>.github.io/<repo>').replace(/\/$/, '');
+const distDir = __dirname + '/dist';
+const baseUrl = (process.argv[2] || 'https://8uvu.github.io/msglog').replace(/\/$/, '');
 
-const distZips = readdirSync('D:\\Revenge plugins\\message-logger').filter(f => f.endsWith('.zip'));
-for (const z of distZips) copyFileSync('D:\\Revenge plugins\\message-logger\\' + z, repoDir + '\\' + z);
-
-function readManifestFromZip(zipPath) {
-    const bytes = readFileSync(zipPath);
-    const entries = unzipSync(bytes, { filter: file => file.name === 'manifest.json' });
-    const manifestBytes = entries['manifest.json'];
-    if (!manifestBytes) throw new Error(`${zipPath}: no manifest.json`);
-    return JSON.parse(new TextDecoder().decode(manifestBytes));
-}
+const dirs = readdirSync(distDir).filter(d => {
+    try { return statSync(distDir + '/' + d + '/manifest.json').isFile(); } catch { return false; }
+});
 
 const plugins = {};
-const poolFiles = readdirSync(repoDir).filter(f => f.endsWith('.zip')).sort();
-for (const file of poolFiles) {
-    const m = /^([^@/\\]+)@([^@/\\]+)\.zip$/.exec(file);
-    if (!m) throw new Error('Bad pool file name: ' + file);
-    const manifest = readManifestFromZip(repoDir + '\\' + file);
-    const claimedId = m[1];
-    const claimedVer = m[2];
-    if (claimedId !== manifest.id || claimedVer !== manifest.version) {
-        const correctName = `${manifest.id}@${manifest.version}.zip`;
-        if (file !== correctName) {
-            renameSync(repoDir + '\\' + file, repoDir + '\\' + correctName);
-        }
-    }
-    const id = manifest.id;
-    const version = manifest.version;
-    const bytes = readFileSync(repoDir + '\\' + id + '@' + version + '.zip');
+for (const dir of dirs) {
+    const manifest = JSON.parse(readFileSync(distDir + '/' + dir + '/manifest.json', 'utf8'));
+    const id = dir;
+    const version = manifest.version || '1.0.0';
+    const zipName = `${id}@${version}.zip`;
+    const bytes = readFileSync(distDir + '/' + dir + '/index.js');
     const entry = {
-        url: `${baseUrl}/${id}@${version}.zip`,
+        url: `${baseUrl}/${zipName}`,
         sha256: createHash('sha256').update(bytes).digest('hex'),
         size: bytes.length,
-        dependencies: Object.fromEntries(
-            Object.entries(manifest.dependencies ?? {}).map(([depId, dep]) => [depId, { version: dep.version, optional: dep.optional }]),
-        ),
     };
     if (!plugins[id]) {
         plugins[id] = {
             name: manifest.name,
-            description: manifest.description ?? '',
-            author: manifest.author ?? '',
+            description: manifest.description || '',
+            author: (manifest.authors && manifest.authors[0] && manifest.authors[0].name) || '',
             channels: {},
             versions: {},
         };
@@ -66,13 +45,6 @@ for (const p of Object.values(plugins)) {
     if (nonLabeled.length) p.channels.latest = nonLabeled[nonLabeled.length - 1];
 }
 
-const index = {
-    format: 1,
-    name: "8uvu's plugins",
-    description: 'Custom Revenge plugins by 8uvu.',
-    plugins,
-};
-
-writeFileSync(repoDir + '\\index.json', JSON.stringify(index, null, 2) + '\n');
+const index = { format: 1, name: "8uvu's plugins", description: 'Custom Revenge plugins by 8uvu.', plugins };
+writeFileSync(distDir + '/index.json', JSON.stringify(index, null, 2) + '\n');
 console.log('index.json written: ' + Object.keys(plugins).length + ' plugin(s)');
-console.log(JSON.stringify(index, null, 2).slice(0, 800));
