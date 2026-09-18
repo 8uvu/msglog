@@ -1,4 +1,7 @@
 {
 	"private": true,
-	"scripts": { "build": "node build.mjs" }
+	"scripts": { "build": "node build.mjs" },
+	"dependencies": {
+		"fflate": "^0.8.2"
+	}
 }
