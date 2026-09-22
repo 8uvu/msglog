@@ -2,6 +2,10 @@
 	"private": true,
 	"scripts": { "build": "node build.mjs" },
 	"dependencies": {
+		"esbuild": "^0.25.0",
 		"fflate": "^0.8.2"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": ["esbuild"]
 	}
 }
