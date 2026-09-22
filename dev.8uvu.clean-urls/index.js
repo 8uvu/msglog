@@ -19,7 +19,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/dev.8uvu.clean-urls/js/index.ts
 var index_exports = {};
 __export(index_exports, {
-  default: () => index_default2
+  default: () => index_default
 });
 module.exports = __toCommonJS(index_exports);
 var DEFAULT_SETTINGS = {
@@ -81,14 +81,47 @@ var TRACKING_PARAMS = /* @__PURE__ */ new Set([
 ]);
 var TRACKING_PREFIXES = ["utm_", "fb_", "ga_", "mc_", "matomo_", "pk_", "mtm_"];
 function getFlux() {
+  var _a, _b, _c;
   try {
-    return revenge.discord.flux || null;
+    if (typeof revenge !== "undefined") {
+      const f = (_a = revenge.discord) == null ? void 0 : _a.flux;
+      if (f && typeof f.onFluxEventDispatched === "function") return f;
+    }
   } catch {
-    return null;
   }
+  try {
+    if (typeof bunny !== "undefined") {
+      const f = (_b = bunny.api) == null ? void 0 : _b.flux;
+      if (f && typeof f.intercept === "function") {
+        return {
+          onFluxEventDispatched: (type, patch) => f.intercept((payload) => {
+            if ((payload == null ? void 0 : payload.type) !== type) return;
+            return patch(payload);
+          })
+        };
+      }
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const fd = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.FluxDispatcher;
+      if (fd && typeof fd.addInterceptor === "function") {
+        return {
+          onFluxEventDispatched: (type, patch) => fd.addInterceptor((payload) => {
+            if ((payload == null ? void 0 : payload.type) !== type) return;
+            return patch(payload);
+          })
+        };
+      }
+    }
+  } catch {
+  }
+  return null;
 }
 var cfg = { ...DEFAULT_SETTINGS };
 var cfgStorage = null;
+var hostKind = "next";
 function coerce(raw) {
   const c = raw && typeof raw === "object" ? raw : {};
   return {
@@ -164,23 +197,10 @@ function handlePayload(payload) {
   return payload;
 }
 function makeSettingsComponent() {
-  const React = (function() {
-    try {
-      const r = revenge.react;
-      return r.React || r;
-    } catch {
-      return null;
-    }
-  })();
+  const React = getReact();
   if (!React) return () => null;
   const el = React.createElement.bind(React);
-  const RN = (function() {
-    try {
-      return revenge.react.ReactNative || {};
-    } catch {
-      return {};
-    }
-  })();
+  const RN = getRN() || {};
   const { View = "view", Text = "text", TextInput = "input", Pressable = View } = RN;
   const SwitchRowFallback = (props) => el(
     Pressable,
@@ -218,10 +238,17 @@ function makeSettingsComponent() {
       ...props.children
     );
   }
-  return function SettingsComponent2({ api }) {
-    var _a, _b, _c, _d, _e;
-    const settings = (_c = (_b = (_a = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a.use) == null ? void 0 : _b.call(_a)) != null ? _c : cfg;
+  return function SettingsComponent2(props) {
+    var _a, _b, _c, _d, _e, _f;
+    const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
+    const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
     const [, force] = React.useState(0);
+    React.useEffect(() => {
+      settingsChangedCb = () => force((n) => n + 1);
+      return () => {
+        settingsChangedCb = null;
+      };
+    }, []);
     const toggleMode = (mode) => {
       var _a2, _b2;
       (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { mode });
@@ -263,7 +290,7 @@ function makeSettingsComponent() {
         { title: (settings == null ? void 0 : settings.mode) === "whitelist" ? "Whitelisted parameters" : "Extra blacklisted parameters" },
         el(TextInput, {
           placeholder: (settings == null ? void 0 : settings.mode) === "whitelist" ? "ref, q, \u2026" : "my_param, another_one, \u2026",
-          defaultValue: (settings == null ? void 0 : settings.mode) === "whitelist" ? (_d = settings == null ? void 0 : settings.customWhitelist) != null ? _d : "" : (_e = settings == null ? void 0 : settings.customBlacklist) != null ? _e : "",
+          defaultValue: (settings == null ? void 0 : settings.mode) === "whitelist" ? (_e = settings == null ? void 0 : settings.customWhitelist) != null ? _e : "" : (_f = settings == null ? void 0 : settings.customBlacklist) != null ? _f : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(
@@ -277,57 +304,239 @@ function makeSettingsComponent() {
     );
   };
 }
+function getReact() {
+  var _a, _b, _c, _d;
+  try {
+    if (typeof revenge !== "undefined") {
+      const r = revenge.react;
+      if (r) return r.React || r;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.api) == null ? void 0 : _b.react) == null ? void 0 : _c.React);
+      if (r) return r;
+    }
+  } catch {
+  }
+  try {
+    const r = (_d = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _d.React;
+    if (r) return r;
+  } catch {
+  }
+  return null;
+}
+function getRN() {
+  var _a, _b, _c;
+  try {
+    if (typeof revenge !== "undefined") {
+      const rn = (_a = revenge.react) == null ? void 0 : _a.ReactNative;
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative);
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  try {
+    const rn = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.ReactNative;
+    if (rn) return rn;
+  } catch {
+  }
+  return null;
+}
+var classicDisposers = [];
+var classicStorageProxy = null;
+var classicStorageKind = null;
+function refreshClassicConfig() {
+  try {
+    const data = classicStorageKind === "vendetta" ? classicStorageProxy : classicStorageProxy == null ? void 0 : classicStorageProxy.data;
+    if (data && typeof data === "object") cfg = coerce(data.settings);
+  } catch {
+  }
+}
+function classicSettingsApi() {
+  return {
+    use: () => ({ ...cfg }),
+    set: (update) => {
+      try {
+        if (!classicStorageProxy || typeof classicStorageProxy !== "object") return;
+        if (classicStorageKind === "vendetta") {
+          classicStorageProxy.settings = { ...coerce(classicStorageProxy.settings), ...update };
+        } else {
+          const data = classicStorageProxy.data && typeof classicStorageProxy.data === "object" ? classicStorageProxy.data : {};
+          classicStorageProxy.data = {
+            ...data,
+            settings: { ...coerce(data.settings), ...update }
+          };
+        }
+        refreshClassicConfig();
+        settingsChangedCb == null ? void 0 : settingsChangedCb();
+      } catch {
+      }
+    }
+  };
+}
+var settingsChangedCb = null;
+async function startClassic() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
+  const b = typeof bunny !== "undefined" && bunny || {};
+  const v = typeof vendetta !== "undefined" ? vendetta : null;
+  const p = (_b = (_a = b.plugin) != null ? _a : v) != null ? _b : {};
+  try {
+    if (!((_c = b.plugin) == null ? void 0 : _c.createStorage) && ((_d = v == null ? void 0 : v.plugin) == null ? void 0 : _d.storage) && typeof v.plugin.storage === "object") {
+      classicStorageProxy = v.plugin.storage;
+      classicStorageKind = "vendetta";
+      if (!classicStorageProxy.settings || typeof classicStorageProxy.settings !== "object") {
+        classicStorageProxy.settings = { ...DEFAULT_SETTINGS };
+      }
+      const emitter = classicStorageProxy[Symbol.for("vendetta.storage.emitter")];
+      const off = (_e = emitter == null ? void 0 : emitter.on) == null ? void 0 : _e.call(emitter, "SET", () => {
+        try {
+          refreshClassicConfig();
+        } catch {
+        }
+      });
+      if (typeof off === "function") classicDisposers.push(off);
+      refreshClassicConfig();
+    }
+    const store = (_f = p.createStorage) == null ? void 0 : _f.call(p);
+    const promise = store == null ? void 0 : store[Symbol.for("bunny.storage.promise")];
+    if (promise && typeof promise.then === "function") await promise.catch(() => {
+    });
+    if (store && typeof store === "object") {
+      classicStorageProxy = store;
+      classicStorageKind = "bunny";
+      const data = store.data && typeof store.data === "object" ? store.data : {};
+      if (!data.settings) store.data = { ...data, settings: { ...DEFAULT_SETTINGS } };
+      refreshClassicConfig();
+      const emitter = store[Symbol.for("vendetta.storage.emitter")];
+      const off = (_g = emitter == null ? void 0 : emitter.on) == null ? void 0 : _g.call(emitter, "SET", () => {
+        try {
+          refreshClassicConfig();
+        } catch {
+        }
+      });
+      if (typeof off === "function") classicDisposers.push(off);
+    }
+  } catch (e) {
+    (_i = (_h = p.logger) == null ? void 0 : _h.error) == null ? void 0 : _i.call(_h, "[CleanUrls] classic storage unavailable, using defaults", e);
+  }
+  const flux = getFlux();
+  if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+    (_k = (_j = p.logger) == null ? void 0 : _j.error) == null ? void 0 : _k.call(_j, "[CleanUrls] flux API unavailable \u2014 plugin idle this session");
+    return;
+  }
+  for (const event of ["MESSAGE_CREATE", "MESSAGE_UPDATE"]) {
+    try {
+      const off = flux.onFluxEventDispatched(event, (payload) => {
+        try {
+          return handlePayload(payload);
+        } catch {
+          return payload;
+        }
+      });
+      if (typeof off === "function") classicDisposers.push(off);
+      (_m = (_l = p.logger) == null ? void 0 : _l.log) == null ? void 0 : _m.call(_l, "[CleanUrls] registered " + event);
+    } catch (e) {
+      (_o = (_n = p.logger) == null ? void 0 : _n.error) == null ? void 0 : _o.call(_n, "[CleanUrls] could not register " + event, e);
+    }
+  }
+  (_q = (_p = p.logger) == null ? void 0 : _p.log) == null ? void 0 : _q.call(_p, "[CleanUrls] started (Revenge Classic / vendetta host)");
+}
 var _SettingsComponent = null;
 function SettingsComponent(props) {
-  if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+  if (!_SettingsComponent) {
+    _SettingsComponent = makeSettingsComponent();
+  }
+  if (hostKind !== "next") refreshClassicConfig();
   return _SettingsComponent(props);
 }
-var index_default = plugin({
+var __instance = {
   jsonStorage: {
     load: true,
     default: DEFAULT_SETTINGS
   },
-  async start({ cleanup, jsonStorage, logger }) {
-    var _a, _b, _c, _d, _e, _f;
+  async start(api) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     try {
-      cfgStorage = jsonStorage != null ? jsonStorage : null;
-      refreshConfig();
-      if (jsonStorage) {
-        try {
-          await jsonStorage.get();
-          refreshConfig();
-          cleanup(jsonStorage.subscribe(() => refreshConfig()));
-        } catch (e) {
-          (_a = logger == null ? void 0 : logger.error) == null ? void 0 : _a.call(logger, "[CleanUrls] jsonStorage unavailable, using defaults", e);
+      if (api && typeof api === "object" && (api.cleanup || api.jsonStorage)) {
+        hostKind = "next";
+        const { cleanup, jsonStorage, logger } = api;
+        cfgStorage = jsonStorage != null ? jsonStorage : null;
+        refreshConfig();
+        if (jsonStorage) {
+          try {
+            await jsonStorage.get();
+            refreshConfig();
+            cleanup(jsonStorage.subscribe(() => refreshConfig()));
+          } catch (e) {
+            (_a = logger == null ? void 0 : logger.error) == null ? void 0 : _a.call(logger, "[CleanUrls] jsonStorage unavailable, using defaults", e);
+          }
         }
-      }
-      const flux = getFlux();
-      if (!flux || typeof flux.onFluxEventDispatched !== "function") {
-        (_b = logger == null ? void 0 : logger.error) == null ? void 0 : _b.call(logger, "[CleanUrls] flux API unavailable \u2014 plugin idle this session");
-        return;
-      }
-      for (const event of ["MESSAGE_CREATE", "MESSAGE_UPDATE"]) {
-        try {
-          cleanup(
-            flux.onFluxEventDispatched(event, (payload) => {
-              try {
-                return handlePayload(payload);
-              } catch {
-                return payload;
-              }
-            })
-          );
-          (_c = logger == null ? void 0 : logger.log) == null ? void 0 : _c.call(logger, "[CleanUrls] registered " + event);
-        } catch (e) {
-          (_d = logger == null ? void 0 : logger.error) == null ? void 0 : _d.call(logger, "[CleanUrls] could not register " + event, e);
+        const flux = getFlux();
+        if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+          (_b = logger == null ? void 0 : logger.error) == null ? void 0 : _b.call(logger, "[CleanUrls] flux API unavailable \u2014 plugin idle this session");
+          return;
         }
+        for (const event of ["MESSAGE_CREATE", "MESSAGE_UPDATE"]) {
+          try {
+            cleanup(
+              flux.onFluxEventDispatched(event, (payload) => {
+                try {
+                  return handlePayload(payload);
+                } catch {
+                  return payload;
+                }
+              })
+            );
+            (_c = logger == null ? void 0 : logger.log) == null ? void 0 : _c.call(logger, "[CleanUrls] registered " + event);
+          } catch (e) {
+            (_d = logger == null ? void 0 : logger.error) == null ? void 0 : _d.call(logger, "[CleanUrls] could not register " + event, e);
+          }
+        }
+        (_e = logger == null ? void 0 : logger.log) == null ? void 0 : _e.call(logger, "[CleanUrls] started (Revenge Next)");
+      } else {
+        hostKind = "classic";
+        await startClassic();
       }
-      (_e = logger == null ? void 0 : logger.log) == null ? void 0 : _e.call(logger, "[CleanUrls] started");
     } catch (e) {
-      (_f = logger == null ? void 0 : logger.error) == null ? void 0 : _f.call(logger, "[CleanUrls] start failed", e);
+      try {
+        (_h = (_g = typeof bunny !== "undefined" ? (_f = bunny.plugin) == null ? void 0 : _f.logger : null) == null ? void 0 : _g.error) == null ? void 0 : _h.call(_g, "[CleanUrls] start failed", e);
+      } catch {
+      }
+    }
+  },
+  stop() {
+    var _a;
+    while (classicDisposers.length) {
+      try {
+        (_a = classicDisposers.pop()) == null ? void 0 : _a();
+      } catch {
+      }
     }
   },
   SettingsComponent
-});
-var index_default2 = index_default;
+};
+if (typeof plugin === "function") {
+  __instance = plugin(__instance);
+}
+globalThis.plugin = __instance;
+__instance.onLoad = function() {
+  var _a;
+  return (_a = __instance.start) == null ? void 0 : _a.call(__instance);
+};
+__instance.onUnload = function() {
+  var _a;
+  return (_a = __instance.stop) == null ? void 0 : _a.call(__instance);
+};
+__instance.settings = __instance.SettingsComponent;
+var index_default = globalThis.plugin;
 ; return (module.exports && module.exports.default) || module.exports; })()

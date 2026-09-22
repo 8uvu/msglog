@@ -8,13 +8,13 @@
             "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
             "author": "8uvu",
             "channels": {
-                "latest": "1.0.0"
+                "latest": "1.0.1"
             },
             "versions": {
-                "1.0.0": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.0.zip",
-                    "sha256": "c2e6d246ebc1d688beff819d3b4ba2564d3ed6867a8e9cb1bcab03b0efbda112",
-                    "size": 4099,
+                "1.0.1": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.1.zip",
+                    "sha256": "417e5ae3f9923a991d550e10d6ffbcb0fddf3f5392d98869accfac4d8dfd9ffb",
+                    "size": 5656,
                     "dependencies": {
                         "revenge.api": {
                             "version": "*"
@@ -31,13 +31,13 @@
             "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
             "author": "8uvu",
             "channels": {
-                "latest": "1.1.1"
+                "latest": "1.1.2"
             },
             "versions": {
-                "1.1.1": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.1.zip",
-                    "sha256": "063355e1d2b614675f2d8a6640f53067e58626633cee414343cc5366950b70e5",
-                    "size": 6252,
+                "1.1.2": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.2.zip",
+                    "sha256": "af216a2e1cfbc244f11ad616419390eddfd5f5edd49cc2fbd000190407bee58a",
+                    "size": 8289,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"

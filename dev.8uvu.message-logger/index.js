@@ -19,9 +19,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/dev.8uvu.message-logger/js/index.tsx
 var index_exports = {};
 __export(index_exports, {
-  default: () => index_default2
+  default: () => index_default
 });
 module.exports = __toCommonJS(index_exports);
+var hostKind = "next";
 var LOG_FILE = "message-logger.json";
 var DEFAULT_SETTINGS = {
   enabled: true,
@@ -35,55 +36,168 @@ var DEFAULT_SETTINGS = {
   ignoredUsers: ""
 };
 function getReact() {
+  var _a, _b, _c, _d;
   try {
-    const r = revenge.react;
-    return r.React || r;
+    if (typeof revenge !== "undefined") {
+      const r = revenge.react;
+      if (r) return r.React || r;
+    }
   } catch {
-    return null;
   }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.api) == null ? void 0 : _b.react) == null ? void 0 : _c.React);
+      if (r) return r;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const r = ((_d = v.common) == null ? void 0 : _d.React) || v.React;
+      if (r) return r;
+    }
+  } catch {
+  }
+  return null;
 }
 function getRN() {
+  var _a, _b, _c, _d, _e;
   try {
-    return revenge.react.ReactNative || null;
+    if (typeof revenge !== "undefined") {
+      const rn = (_a = revenge.react) == null ? void 0 : _a.ReactNative;
+      if (rn) return rn;
+    }
   } catch {
-    return null;
   }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.api) == null ? void 0 : _c.react) == null ? void 0 : _d.ReactNative);
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const rn = (_e = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _e.ReactNative;
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  return null;
 }
 function getFlux() {
+  var _a, _b, _c;
   try {
-    return revenge.discord.flux || null;
+    if (typeof revenge !== "undefined") {
+      const f = (_a = revenge.discord) == null ? void 0 : _a.flux;
+      if (f && typeof f.onFluxEventDispatched === "function") return f;
+    }
   } catch {
-    return null;
   }
+  try {
+    if (typeof bunny !== "undefined") {
+      const f = (_b = bunny.api) == null ? void 0 : _b.flux;
+      if (f && typeof f.intercept === "function") {
+        return {
+          onFluxEventDispatched: (type, patch) => f.intercept((payload) => {
+            if ((payload == null ? void 0 : payload.type) !== type) return;
+            return patch(payload);
+          })
+        };
+      }
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const fd = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.FluxDispatcher;
+      if (fd && typeof fd.addInterceptor === "function") {
+        return {
+          onFluxEventDispatched: (type, patch) => fd.addInterceptor((payload) => {
+            if ((payload == null ? void 0 : payload.type) !== type) return;
+            return patch(payload);
+          })
+        };
+      }
+    }
+  } catch {
+  }
+  return null;
 }
 function getActions() {
+  var _a, _b, _c, _d, _e, _f;
   try {
-    return revenge.discord.actions || null;
+    if (typeof revenge !== "undefined") {
+      const a = (_a = revenge.discord) == null ? void 0 : _a.actions;
+      if (a) return a;
+    }
   } catch {
-    return null;
   }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const a = ((_b = b.common) == null ? void 0 : _b.ToastActionCreators) || ((_d = (_c = b.api) == null ? void 0 : _c.actions) == null ? void 0 : _d.ToastActionCreators);
+      if (a) return a;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const show = (_f = (_e = vendetta == null ? void 0 : vendetta.ui) == null ? void 0 : _e.toasts) == null ? void 0 : _f.showToast;
+      if (typeof show === "function") {
+        return { ToastActionCreators: { open: (t) => {
+          var _a2;
+          return show(String((_a2 = t == null ? void 0 : t.content) != null ? _a2 : ""));
+        } } };
+      }
+    }
+  } catch {
+  }
+  return null;
 }
 function getFileModule() {
+  var _a, _b, _c, _d, _e;
   try {
-    return revenge.discord.native.FileModule || null;
+    if (typeof revenge !== "undefined") {
+      const fm = (_b = (_a = revenge.discord) == null ? void 0 : _a.native) == null ? void 0 : _b.FileModule;
+      if (fm) return fm;
+    }
   } catch {
-    return null;
   }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      return ((_d = (_c = b.api) == null ? void 0 : _c.native) == null ? void 0 : _d.FileModule) || ((_e = b.native) == null ? void 0 : _e.FileModule) || null;
+    }
+  } catch {
+  }
+  return null;
 }
 function getDesign() {
+  var _a;
   try {
-    const d = revenge.discord.design;
-    return d && (d.Design || d) || null;
+    const d = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.design;
+    const design = d && (d.Design || d);
+    if (design) return design;
   } catch {
-    return null;
   }
+  try {
+    const ui = bunny == null ? void 0 : bunny.ui;
+    if (ui) return ui.FormTableRowGroup ? ui : ui.components || ui;
+  } catch {
+  }
+  return null;
 }
 function getClipboard() {
+  var _a, _b;
   try {
-    return revenge.externals.ReactNativeClipboard.Clipboard || null;
+    return ((_b = (_a = revenge == null ? void 0 : revenge.externals) == null ? void 0 : _a.ReactNativeClipboard) == null ? void 0 : _b.Clipboard) || null;
   } catch {
-    return null;
   }
+  return null;
 }
 var log = {};
 var docRoot = "";
@@ -134,8 +248,44 @@ function hostError(msg, e) {
   } catch {
   }
 }
+var storageProxy = null;
+var storageKind = null;
+var classicDisposers = [];
+function hostData() {
+  try {
+    if (!storageProxy) return null;
+    if (storageKind === "bunny") {
+      return storageProxy.data && typeof storageProxy.data === "object" ? storageProxy.data : {};
+    }
+    if (storageKind === "vendetta") {
+      return { settings: storageProxy.settings, log: storageProxy.log };
+    }
+  } catch {
+  }
+  return null;
+}
+function refreshClassicConfig() {
+  try {
+    const data = hostData();
+    if ((data == null ? void 0 : data.settings) && typeof data.settings === "object") cfg = coerceSettings(data.settings);
+  } catch {
+  }
+}
 async function loadLog() {
   var _a;
+  if (hostKind !== "next") {
+    try {
+      const data = hostData();
+      if ((data == null ? void 0 : data.settings) && typeof data.settings === "object") {
+        cfg = coerceSettings(data.settings);
+      }
+      if ((data == null ? void 0 : data.log) && typeof data.log === "object") log = data.log;
+      hostLog("loaded " + Object.keys(log).length + " entries (plugin storage)");
+    } catch (e) {
+      hostError("failed to read plugin storage", e);
+    }
+    return;
+  }
   const fm = getFileModule();
   if (!fm) {
     hostError("FileModule unavailable \u2014 log cannot be loaded or saved");
@@ -157,6 +307,21 @@ async function loadLog() {
   }
 }
 async function persistLog() {
+  if (hostKind !== "next") {
+    try {
+      if (storageProxy && typeof storageProxy === "object") {
+        if (storageKind === "bunny") {
+          const data = storageProxy.data && typeof storageProxy.data === "object" ? storageProxy.data : {};
+          storageProxy.data = { ...data, log };
+        } else {
+          storageProxy.log = { ...log };
+        }
+      }
+    } catch (e) {
+      hostError("failed to write plugin storage", e);
+    }
+    return;
+  }
   const fm = getFileModule();
   if (!fm) return;
   try {
@@ -176,10 +341,54 @@ function inList(id, raw) {
   if (!raw) return false;
   return raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).includes(String(id));
 }
-function currentUserId() {
-  var _a, _b, _c, _d, _e;
+function getUserStore() {
+  var _a, _b, _c, _d, _e, _f, _g;
   try {
-    return String((_e = (_d = (_c = (_b = (_a = getFlux()) == null ? void 0 : _a.Stores) == null ? void 0 : _b.UserStore) == null ? void 0 : _c.getCurrentUser) == null ? void 0 : _d.call(_c).id) != null ? _e : "");
+    if (typeof revenge !== "undefined") {
+      const s = (_b = (_a = revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores;
+      if (s == null ? void 0 : s.UserStore) return s.UserStore;
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const metro = b == null ? void 0 : b.metro;
+    for (const c of [(_c = b == null ? void 0 : b.common) == null ? void 0 : _c.UserStore, (_f = (_e = (_d = b == null ? void 0 : b.api) == null ? void 0 : _d.flux) == null ? void 0 : _e.stores) == null ? void 0 : _f.UserStore, (_g = metro == null ? void 0 : metro.common) == null ? void 0 : _g.UserStore]) {
+      if (c) return c;
+    }
+    if (metro == null ? void 0 : metro.findByStoreName) {
+      const m = metro.findByStoreName("UserStore");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+    if (metro == null ? void 0 : metro.findByProps) {
+      const m = metro.findByProps("getCurrentUser");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+    if (metro == null ? void 0 : metro.find) {
+      const m = metro.find((x) => x && typeof x.getCurrentUser === "function");
+      if (m) return m;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const metro = v == null ? void 0 : v.metro;
+    if (metro == null ? void 0 : metro.findByStoreName) {
+      const m = metro.findByStoreName("UserStore");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+    if (metro == null ? void 0 : metro.findByProps) {
+      const m = metro.findByProps("getCurrentUser");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+  } catch {
+  }
+  return null;
+}
+function currentUserId() {
+  var _a, _b, _c;
+  try {
+    return String((_c = (_b = (_a = getUserStore()) == null ? void 0 : _a.getCurrentUser) == null ? void 0 : _b.call(_a).id) != null ? _c : "");
   } catch {
     return "";
   }
@@ -215,17 +424,59 @@ function snapshotOf(message, me) {
 }
 var seen = /* @__PURE__ */ new Map();
 function toast(content, key) {
-  var _a, _b, _c;
+  var _a, _b;
   try {
-    (_c = (_b = (_a = getActions()) == null ? void 0 : _a.ToastActionCreators) == null ? void 0 : _b.open) == null ? void 0 : _c.call(_b, { key, content });
+    const actions = getActions();
+    const open = (_b = (_a = actions == null ? void 0 : actions.ToastActionCreators) == null ? void 0 : _a.open) != null ? _b : actions == null ? void 0 : actions.open;
+    open == null ? void 0 : open({ key, content });
   } catch {
   }
 }
-function toastGhostPing(entry) {
+function getChannelStore() {
   var _a, _b, _c, _d;
+  try {
+    if (typeof revenge !== "undefined") {
+      const s = (_b = (_a = revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores;
+      if (s == null ? void 0 : s.ChannelStore) return s.ChannelStore;
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const metro = b == null ? void 0 : b.metro;
+    for (const c of [(_c = b == null ? void 0 : b.common) == null ? void 0 : _c.ChannelStore, (_d = metro == null ? void 0 : metro.common) == null ? void 0 : _d.ChannelStore]) {
+      if (c) return c;
+    }
+    if (metro == null ? void 0 : metro.findByStoreName) {
+      const m = metro.findByStoreName("ChannelStore");
+      if (m == null ? void 0 : m.getChannel) return m;
+    }
+    if (metro == null ? void 0 : metro.findByProps) {
+      const m = metro.findByProps("getChannel");
+      if (m == null ? void 0 : m.getChannel) return m;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const metro = v == null ? void 0 : v.metro;
+    if (metro == null ? void 0 : metro.findByStoreName) {
+      const m = metro.findByStoreName("ChannelStore");
+      if (m == null ? void 0 : m.getChannel) return m;
+    }
+    if (metro == null ? void 0 : metro.findByProps) {
+      const m = metro.findByProps("getChannel");
+      if (m == null ? void 0 : m.getChannel) return m;
+    }
+  } catch {
+  }
+  return null;
+}
+function toastGhostPing(entry) {
+  var _a, _b;
   let where = "a channel";
   try {
-    const ch = (_d = (_c = (_b = (_a = getFlux()) == null ? void 0 : _a.Stores) == null ? void 0 : _b.ChannelStore) == null ? void 0 : _c.getChannel) == null ? void 0 : _d.call(_c, entry.channelId);
+    const ch = (_b = (_a = getChannelStore()) == null ? void 0 : _a.getChannel) == null ? void 0 : _b.call(_a, entry.channelId);
     if (ch == null ? void 0 : ch.name) where = "#" + ch.name;
   } catch {
   }
@@ -363,13 +614,20 @@ function makeSettingsComponent() {
     const T = design == null ? void 0 : design.Text;
     return el(T || Text, props, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
   };
-  return function SettingsComponent2({ api }) {
-    var _a, _b, _c, _d, _e;
-    const settings = (_c = (_b = (_a = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a.use) == null ? void 0 : _b.call(_a)) != null ? _c : cfg;
+  return function SettingsComponent2(props) {
+    var _a, _b, _c, _d, _e, _f;
+    const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
+    const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
     const [entries, setEntries] = React.useState([]);
     const [filter, setFilter] = React.useState("all");
     const [query, setQuery] = React.useState("");
     const [refreshTick, setRefreshTick] = React.useState(0);
+    React.useEffect(() => {
+      settingsChangedCb = () => setRefreshTick((t) => t + 1);
+      return () => {
+        settingsChangedCb = null;
+      };
+    }, []);
     const reload = async () => {
       var _a2;
       const merged = {};
@@ -464,7 +722,7 @@ function makeSettingsComponent() {
         el(DText, null, "Comma-separated channel IDs never get logged."),
         el(TextInput, {
           placeholder: "Channel IDs",
-          defaultValue: (_d = settings == null ? void 0 : settings.ignoredChannels) != null ? _d : "",
+          defaultValue: (_e = settings == null ? void 0 : settings.ignoredChannels) != null ? _e : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
@@ -474,7 +732,7 @@ function makeSettingsComponent() {
         el(DText, null, "Comma-separated user IDs never get logged."),
         el(TextInput, {
           placeholder: "User IDs",
-          defaultValue: (_e = settings == null ? void 0 : settings.ignoredUsers) != null ? _e : "",
+          defaultValue: (_f = settings == null ? void 0 : settings.ignoredUsers) != null ? _f : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
@@ -534,77 +792,188 @@ function makeSettingsComponent() {
     );
   };
 }
+var settingsChangedCb = null;
+function notifySettingsChanged() {
+  try {
+    settingsChangedCb == null ? void 0 : settingsChangedCb();
+  } catch {
+  }
+}
+function classicSettingsApi() {
+  return {
+    use: () => ({ ...cfg }),
+    set: (update) => {
+      var _a;
+      try {
+        if (!storageProxy || typeof storageProxy !== "object") return;
+        const data = (_a = hostData()) != null ? _a : {};
+        const settings = { ...coerceSettings(data.settings), ...update };
+        if (storageKind === "bunny") {
+          storageProxy.data = { ...data, settings };
+        } else {
+          storageProxy.settings = settings;
+        }
+        refreshClassicConfig();
+        notifySettingsChanged();
+      } catch {
+      }
+    }
+  };
+}
+function registerFluxHandlers(flux, addCleanup) {
+  const register = (event, handler) => {
+    try {
+      const off = flux.onFluxEventDispatched(event, (payload) => {
+        try {
+          handler(payload);
+        } catch (e) {
+          hostError(event + " handler failed", e);
+        }
+        return payload;
+      });
+      if (typeof off === "function") addCleanup(off);
+      hostLog("registered " + event);
+    } catch (e) {
+      hostError("could not register " + event, e);
+    }
+  };
+  register("MESSAGE_CREATE", handleCreate);
+  register("MESSAGE_DELETE", handleDelete);
+  register("MESSAGE_DELETE_BULK", handleDeleteBulk);
+  register("MESSAGE_UPDATE", handleUpdate);
+}
+async function startNext({ cleanup, jsonStorage, logger }) {
+  apiRef = { logger };
+  cfgStorage = jsonStorage != null ? jsonStorage : null;
+  refreshConfigFromStorage();
+  if (jsonStorage) {
+    try {
+      await jsonStorage.get();
+      refreshConfigFromStorage();
+      cleanup(
+        jsonStorage.subscribe(() => {
+          refreshConfigFromStorage();
+        })
+      );
+    } catch (e) {
+      hostError("jsonStorage unavailable, using default settings", e);
+    }
+  }
+  await loadLog();
+  const flux = getFlux();
+  if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+    hostError("flux API unavailable \u2014 capture disabled this session");
+    toast("MessageLogger: flux unavailable", "msglogger-start-fail");
+    return;
+  }
+  registerFluxHandlers(flux, cleanup);
+  cleanup(() => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    void persistLog();
+    seen.clear();
+    apiRef = null;
+  });
+  hostLog("started (Revenge Next)");
+}
+async function startClassic() {
+  var _a, _b, _c, _d, _e, _f;
+  const b = typeof bunny !== "undefined" && bunny || {};
+  const v = typeof vendetta !== "undefined" ? vendetta : null;
+  apiRef = { logger: (_c = (_b = (_a = b.plugin) == null ? void 0 : _a.logger) != null ? _b : v == null ? void 0 : v.logger) != null ? _c : null };
+  try {
+    if ((_d = b.plugin) == null ? void 0 : _d.createStorage) {
+      const store = b.plugin.createStorage();
+      const promise = store == null ? void 0 : store[Symbol.for("bunny.storage.promise")];
+      if (promise && typeof promise.then === "function") await promise.catch(() => {
+      });
+      if (store && typeof store === "object") {
+        storageProxy = store;
+        storageKind = "bunny";
+        const data = store.data && typeof store.data === "object" ? store.data : {};
+        if (!data.settings) store.data = { ...data, settings: { ...DEFAULT_SETTINGS } };
+        const emitter = store[Symbol.for("vendetta.storage.emitter")];
+        const off = (_e = emitter == null ? void 0 : emitter.on) == null ? void 0 : _e.call(emitter, "SET", () => {
+          try {
+            refreshClassicConfig();
+          } catch {
+          }
+        });
+        if (typeof off === "function") classicDisposers.push(off);
+      }
+    } else if (typeof vendetta !== "undefined" && ((_f = vendetta == null ? void 0 : vendetta.plugin) == null ? void 0 : _f.storage)) {
+      const store = vendetta.plugin.storage;
+      if (store && typeof store === "object") {
+        storageProxy = store;
+        storageKind = "vendetta";
+        if (!store.settings || typeof store.settings !== "object") {
+          store.settings = { ...DEFAULT_SETTINGS };
+        }
+      }
+    }
+  } catch (e) {
+    hostError("plugin storage unavailable, using default settings", e);
+  }
+  refreshClassicConfig();
+  await loadLog();
+  const flux = getFlux();
+  if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+    hostError("flux API unavailable \u2014 capture disabled this session");
+    toast("MessageLogger: flux unavailable", "msglogger-start-fail");
+    return;
+  }
+  registerFluxHandlers(flux, (off) => classicDisposers.push(off));
+  hostLog("started (Revenge Classic / vendetta host)");
+}
 var _SettingsComponent = null;
 function SettingsComponent(props) {
   if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+  if (hostKind !== "next") refreshClassicConfig();
   return _SettingsComponent(props);
 }
-var index_default = plugin({
+var __instance = {
   jsonStorage: {
     load: true,
     default: DEFAULT_SETTINGS
   },
-  async start({ cleanup, jsonStorage, logger }) {
-    apiRef = { logger };
+  async start(api) {
     try {
-      cfgStorage = jsonStorage != null ? jsonStorage : null;
-      refreshConfigFromStorage();
-      if (jsonStorage) {
-        try {
-          await jsonStorage.get();
-          refreshConfigFromStorage();
-          cleanup(
-            jsonStorage.subscribe(() => {
-              refreshConfigFromStorage();
-            })
-          );
-        } catch (e) {
-          hostError("jsonStorage unavailable, using default settings", e);
-        }
+      if (api && typeof api === "object" && (api.cleanup || api.jsonStorage)) {
+        hostKind = "next";
+        await startNext(api);
+      } else {
+        hostKind = "classic";
+        await startClassic();
       }
-      await loadLog();
-      const flux = getFlux();
-      if (!flux || typeof flux.onFluxEventDispatched !== "function") {
-        hostError("flux API unavailable \u2014 capture disabled this session");
-        toast("MessageLogger: flux unavailable", "msglogger-start-fail");
-        return;
-      }
-      const register = (event, handler) => {
-        try {
-          cleanup(
-            flux.onFluxEventDispatched(event, (payload) => {
-              try {
-                handler(payload);
-              } catch (e) {
-                hostError(event + " handler failed", e);
-              }
-              return payload;
-            })
-          );
-          hostLog("registered " + event);
-        } catch (e) {
-          hostError("could not register " + event, e);
-        }
-      };
-      register("MESSAGE_CREATE", handleCreate);
-      register("MESSAGE_DELETE", handleDelete);
-      register("MESSAGE_DELETE_BULK", handleDeleteBulk);
-      register("MESSAGE_UPDATE", handleUpdate);
-      cleanup(() => {
-        if (flushTimer) {
-          clearTimeout(flushTimer);
-          flushTimer = null;
-        }
-        void persistLog();
-        seen.clear();
-        apiRef = null;
-      });
-      hostLog("started");
     } catch (e) {
       hostError("start failed", e);
     }
   },
+  stop() {
+    var _a;
+    while (classicDisposers.length) {
+      try {
+        (_a = classicDisposers.pop()) == null ? void 0 : _a();
+      } catch {
+      }
+    }
+  },
   SettingsComponent
-});
-var index_default2 = index_default;
+};
+if (typeof plugin === "function") {
+  __instance = plugin(__instance);
+}
+globalThis.plugin = __instance;
+__instance.onLoad = function() {
+  var _a;
+  return (_a = __instance.start) == null ? void 0 : _a.call(__instance);
+};
+__instance.onUnload = function() {
+  var _a;
+  return (_a = __instance.stop) == null ? void 0 : _a.call(__instance);
+};
+__instance.settings = __instance.SettingsComponent;
+var index_default = globalThis.plugin;
 ; return (module.exports && module.exports.default) || module.exports; })()
