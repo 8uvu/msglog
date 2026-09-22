@@ -4,11 +4,20 @@
 // before they render, by patching MESSAGE_CREATE / MESSAGE_UPDATE in flux.
 //
 // HOST-COMPAT RULES (same as MessageLogger):
-// - The client evaluates this bundle as `return <bundle>`; a throw during
-//   evaluation marks the plugin "failed" and disables it. ZERO `revenge.*`
-//   access at eval time — everything is resolved lazily inside functions.
-// - No JSX (jsx-runtime paths differ across Revenge versions).
+// - UNIVERSAL BUILD for Revenge Next AND Classic:
+//   * Next wraps the script as `return <script>` inside
+//     new Function('revenge','plugin',...) and uses <result>.default.
+//   * Classic wraps it as `(bunny,definePlugin)=>{<script>; return
+//     plugin?.default ?? plugin}` — so the script must ASSIGN a `plugin`
+//     variable (globalThis.plugin). The build wrapper does this.
+//   => ZERO host-global property access at eval time on either host.
+// - start() gets no arguments on Classic (api via `bunny` global) and the
+//   API object on Next, so it adapts to whichever is present.
+// - No JSX (jsx-runtime paths differ across builds).
 
+declare const revenge: any;
+declare const bunny: any;
+declare const vendetta: any;
 declare const plugin: any;
 
 interface Settings {
@@ -44,16 +53,51 @@ const TRACKING_PREFIXES = ['utm_', 'fb_', 'ga_', 'mc_', 'matomo_', 'pk_', 'mtm_'
 
 function getFlux(): any {
     try {
-        return (revenge as any).discord.flux || null;
-    } catch {
-        return null;
-    }
+        if (typeof revenge !== 'undefined') {
+            const f: any = revenge.discord?.flux;
+            if (f && typeof f.onFluxEventDispatched === 'function') return f;
+        }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const f: any = bunny.api?.flux;
+            if (f && typeof f.intercept === 'function') {
+                // Adapt Classic's intercept (all events) to the Next-style
+                // onFluxEventDispatched(type, patch) signature.
+                return {
+                    onFluxEventDispatched: (type: string, patch: (payload: any) => any) =>
+                        f.intercept((payload: any) => {
+                            if (payload?.type !== type) return;
+                            return patch(payload);
+                        }),
+                };
+            }
+        }
+    } catch {}
+    try {
+        if (typeof vendetta !== 'undefined') {
+            const fd: any = (vendetta as any)?.common?.FluxDispatcher;
+            if (fd && typeof fd.addInterceptor === 'function') {
+                // Vendetta-manager path: the dispatcher's interceptors see
+                // every dispatch; returning false blocks, undefined passes.
+                return {
+                    onFluxEventDispatched: (type: string, patch: (payload: any) => any) =>
+                        fd.addInterceptor((payload: any) => {
+                            if (payload?.type !== type) return;
+                            return patch(payload);
+                        }),
+                };
+            }
+        }
+    } catch {}
+    return null;
 }
 
 // ---- Settings --------------------------------------------------------------
 
 let cfg: Settings = { ...DEFAULT_SETTINGS };
 let cfgStorage: any = null;
+let hostKind: 'next' | 'classic' = 'next';
 
 function coerce(raw: any): Settings {
     const c = raw && typeof raw === 'object' ? raw : {};
@@ -148,23 +192,10 @@ function handlePayload(payload: any) {
 // ---- Settings UI (React, no JSX) --------------------------------------------
 
 function makeSettingsComponent() {
-    const React = (function () {
-        try {
-            const r: any = (revenge as any).react;
-            return r.React || r;
-        } catch {
-            return null;
-        }
-    })();
+    const React = getReact();
     if (!React) return () => null;
     const el = React.createElement.bind(React);
-    const RN: any = (function () {
-        try {
-            return (revenge as any).react.ReactNative || {};
-        } catch {
-            return {};
-        }
-    })();
+    const RN: any = getRN() || {};
     const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View } = RN;
 
     const SwitchRowFallback = (props: any) =>
@@ -203,9 +234,18 @@ function makeSettingsComponent() {
         );
     }
 
-    return function SettingsComponent({ api }: any) {
+    return function SettingsComponent(props: any) {
+        // Classic renders this with no props; Next passes { api }.
+        const api: any = props?.api ?? classicSettingsApi();
         const settings = api?.jsonStorage?.use?.() ?? cfg;
         const [, force] = React.useState(0);
+
+        React.useEffect(() => {
+            settingsChangedCb = () => force((n: number) => n + 1);
+            return () => {
+                settingsChangedCb = null;
+            };
+        }, []);
 
         const toggleMode = (mode: 'blacklist' | 'whitelist') => {
             api?.jsonStorage?.set?.({ mode });
@@ -259,62 +299,249 @@ function makeSettingsComponent() {
     };
 }
 
+// ---- Plugin definition -------------------------------------------------------
+
+// Host accessors are existence-probed so the same bundle runs on both hosts.
+function getReact(): any {
+    try {
+        if (typeof revenge !== 'undefined') {
+            const r: any = revenge.react;
+            if (r) return r.React || r;
+        }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const b: any = bunny;
+            const r = b.React || b.common?.React || b.api?.react?.React;
+            if (r) return r;
+        }
+    } catch {}
+    try {
+        const r: any = (vendetta as any)?.common?.React;
+        if (r) return r;
+    } catch {}
+    return null;
+}
+
+function getRN(): any {
+    try {
+        if (typeof revenge !== 'undefined') {
+            const rn: any = revenge.react?.ReactNative;
+            if (rn) return rn;
+        }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const b: any = bunny;
+            const rn = b.ReactNative || b.common?.ReactNative;
+            if (rn) return rn;
+        }
+    } catch {}
+    try {
+        const rn: any = (vendetta as any)?.common?.ReactNative;
+        if (rn) return rn;
+    } catch {}
+    return null;
+}
+
+let classicDisposers: Array<() => void> = [];
+let classicStorageProxy: any = null;
+let classicStorageKind: 'bunny' | 'vendetta' | null = null;
+
+function refreshClassicConfig() {
+    try {
+        const data = classicStorageKind === 'vendetta' ? classicStorageProxy : classicStorageProxy?.data;
+        if (data && typeof data === 'object') cfg = coerce(data.settings);
+    } catch {}
+}
+
+function classicSettingsApi(): any {
+    return {
+        use: () => ({ ...cfg }),
+        set: (update: any) => {
+            try {
+                if (!classicStorageProxy || typeof classicStorageProxy !== 'object') return;
+                if (classicStorageKind === 'vendetta') {
+                    classicStorageProxy.settings = { ...coerce(classicStorageProxy.settings), ...update };
+                } else {
+                    const data = classicStorageProxy.data && typeof classicStorageProxy.data === 'object' ? classicStorageProxy.data : {};
+                    classicStorageProxy.data = {
+                        ...data,
+                        settings: { ...coerce(data.settings), ...update },
+                    };
+                }
+                refreshClassicConfig();
+                settingsChangedCb?.();
+            } catch {}
+        },
+    };
+}
+
+let settingsChangedCb: (() => void) | null = null;
+
+async function startClassic() {
+    const b: any = (typeof bunny !== 'undefined' && bunny) || {};
+    const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
+    const p = b.plugin ?? v ?? {};
+    try {
+        if (!b.plugin?.createStorage && v?.plugin?.storage && typeof v.plugin.storage === 'object') {
+            // Vendetta-manager path: plain MMKV proxy, no .data wrapper.
+            classicStorageProxy = v.plugin.storage;
+            classicStorageKind = 'vendetta';
+            if (!classicStorageProxy.settings || typeof classicStorageProxy.settings !== 'object') {
+                classicStorageProxy.settings = { ...DEFAULT_SETTINGS };
+            }
+            const emitter = classicStorageProxy[Symbol.for('vendetta.storage.emitter')];
+            const off = emitter?.on?.('SET', () => {
+                try {
+                    refreshClassicConfig();
+                } catch {}
+            });
+            if (typeof off === 'function') classicDisposers.push(off);
+            refreshClassicConfig();
+        }
+        const store = p.createStorage?.();
+        const promise = store?.[Symbol.for('bunny.storage.promise')];
+        if (promise && typeof promise.then === 'function') await promise.catch(() => {});
+        if (store && typeof store === 'object') {
+            classicStorageProxy = store;
+            classicStorageKind = 'bunny';
+            const data = store.data && typeof store.data === 'object' ? store.data : {};
+            if (!data.settings) store.data = { ...data, settings: { ...DEFAULT_SETTINGS } };
+            refreshClassicConfig();
+            const emitter = store[Symbol.for('vendetta.storage.emitter')];
+            const off = emitter?.on?.('SET', () => {
+                try {
+                    refreshClassicConfig();
+                } catch {}
+            });
+            if (typeof off === 'function') classicDisposers.push(off);
+        }
+    } catch (e) {
+        p.logger?.error?.('[CleanUrls] classic storage unavailable, using defaults', e);
+    }
+
+    const flux = getFlux();
+    if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
+        p.logger?.error?.('[CleanUrls] flux API unavailable — plugin idle this session');
+        return;
+    }
+
+    for (const event of ['MESSAGE_CREATE', 'MESSAGE_UPDATE']) {
+        try {
+            const off = flux.onFluxEventDispatched(event, (payload: any) => {
+                try {
+                    return handlePayload(payload);
+                } catch {
+                    return payload;
+                }
+            });
+            if (typeof off === 'function') classicDisposers.push(off);
+            p.logger?.log?.('[CleanUrls] registered ' + event);
+        } catch (e) {
+            p.logger?.error?.('[CleanUrls] could not register ' + event, e);
+        }
+    }
+
+    p.logger?.log?.('[CleanUrls] started (Revenge Classic / vendetta host)');
+}
+
+// Constructed on first render, not at eval time.
 let _SettingsComponent: any = null;
 function SettingsComponent(props: any) {
-    if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+    if (!_SettingsComponent) {
+        _SettingsComponent = makeSettingsComponent();
+    }
+    if (hostKind !== 'next') refreshClassicConfig();
     return _SettingsComponent(props);
 }
 
-// ---- Plugin definition -------------------------------------------------------
-
-const index_default = plugin({
+// Universal instance: Revenge Classic's loader reads `plugin?.default ??
+// plugin` from the script scope; Revenge Next injects a `plugin` factory and
+// reads <result>.default — when present we pass the instance through it.
+let __instance: any = {
     jsonStorage: {
         load: true,
         default: DEFAULT_SETTINGS,
     },
-    async start({ cleanup, jsonStorage, logger }: any) {
+    async start(api: any) {
         try {
-            cfgStorage = jsonStorage ?? null;
-            refreshConfig();
-            if (jsonStorage) {
-                try {
-                    await jsonStorage.get();
-                    refreshConfig();
-                    cleanup(jsonStorage.subscribe(() => refreshConfig()));
-                } catch (e) {
-                    logger?.error?.('[CleanUrls] jsonStorage unavailable, using defaults', e);
+            if (api && typeof api === 'object' && (api.cleanup || api.jsonStorage)) {
+                // Revenge Next passes the API object into start().
+                hostKind = 'next';
+                const { cleanup, jsonStorage, logger } = api;
+                cfgStorage = jsonStorage ?? null;
+                refreshConfig();
+                if (jsonStorage) {
+                    try {
+                        await jsonStorage.get();
+                        refreshConfig();
+                        cleanup(jsonStorage.subscribe(() => refreshConfig()));
+                    } catch (e) {
+                        logger?.error?.('[CleanUrls] jsonStorage unavailable, using defaults', e);
+                    }
                 }
-            }
 
-            const flux = getFlux();
-            if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
-                logger?.error?.('[CleanUrls] flux API unavailable — plugin idle this session');
-                return;
-            }
-
-            for (const event of ['MESSAGE_CREATE', 'MESSAGE_UPDATE']) {
-                try {
-                    cleanup(
-                        flux.onFluxEventDispatched(event, (payload: any) => {
-                            try {
-                                return handlePayload(payload);
-                            } catch {
-                                return payload;
-                            }
-                        }),
-                    );
-                    logger?.log?.('[CleanUrls] registered ' + event);
-                } catch (e) {
-                    logger?.error?.('[CleanUrls] could not register ' + event, e);
+                const flux = getFlux();
+                if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
+                    logger?.error?.('[CleanUrls] flux API unavailable — plugin idle this session');
+                    return;
                 }
-            }
 
-            logger?.log?.('[CleanUrls] started');
+                for (const event of ['MESSAGE_CREATE', 'MESSAGE_UPDATE']) {
+                    try {
+                        cleanup(
+                            flux.onFluxEventDispatched(event, (payload: any) => {
+                                try {
+                                    return handlePayload(payload);
+                                } catch {
+                                    return payload;
+                                }
+                            }),
+                        );
+                        logger?.log?.('[CleanUrls] registered ' + event);
+                    } catch (e) {
+                        logger?.error?.('[CleanUrls] could not register ' + event, e);
+                    }
+                }
+
+                logger?.log?.('[CleanUrls] started (Revenge Next)');
+            } else {
+                // Revenge Classic calls start() with no arguments.
+                hostKind = 'classic';
+                await startClassic();
+            }
         } catch (e) {
-            logger?.error?.('[CleanUrls] start failed', e);
+            // Best-effort host logging.
+            try {
+                (typeof bunny !== 'undefined' ? bunny.plugin?.logger : null)?.error?.('[CleanUrls] start failed', e);
+            } catch {}
+        }
+    },
+    stop() {
+        while (classicDisposers.length) {
+            try {
+                classicDisposers.pop()?.();
+            } catch {}
         }
     },
     SettingsComponent,
-});
+};
 
-export default index_default;
+if (typeof plugin === 'function') {
+    // Revenge Next: consume the injected factory (registers the options).
+    __instance = plugin(__instance);
+}
+globalThis.plugin = __instance;
+
+// Vendetta-manager compat: that loader reads {onLoad, onUnload, settings}
+// from the evaluated result and calls onLoad() with no arguments.
+__instance.onLoad = function () {
+    return __instance.start?.();
+};
+__instance.onUnload = function () {
+    return __instance.stop?.();
+};
+__instance.settings = __instance.SettingsComponent;
+
+export default globalThis.plugin;

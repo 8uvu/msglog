@@ -4,7 +4,13 @@
     "name": "Clean URLs",
     "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
     "author": "8uvu",
-    "version": "1.0.0",
+    "main": "index.js",
+    "display": {
+        "name": "Clean URLs",
+        "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
+        "authors": [{ "name": "8uvu" }]
+    },
+    "version": "1.0.1",
     "dependencies": {
         "revenge.api": { "version": "*" },
         "discord": { "version": "*" }

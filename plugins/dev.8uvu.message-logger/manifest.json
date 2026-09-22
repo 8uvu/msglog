@@ -4,7 +4,13 @@
     "name": "MessageLogger",
     "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
     "author": "8uvu",
-    "version": "1.1.1",
+    "main": "index.js",
+    "display": {
+        "name": "MessageLogger",
+        "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
+        "authors": [{ "name": "8uvu" }]
+    },
+    "version": "1.1.2",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }
