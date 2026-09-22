@@ -16,7 +16,7 @@ var __copyProps = (to, from, except, desc) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// js/index.tsx
+// plugins/dev.8uvu.message-logger/js/index.tsx
 var index_exports = {};
 __export(index_exports, {
   default: () => index_default2
