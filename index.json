@@ -3,18 +3,41 @@
     "name": "msglog",
     "description": "Revenge plugins by 8uvu",
     "plugins": {
+        "dev.8uvu.clean-urls": {
+            "name": "Clean URLs",
+            "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
+            "author": "8uvu",
+            "channels": {
+                "latest": "1.0.0"
+            },
+            "versions": {
+                "1.0.0": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.0.zip",
+                    "sha256": "db1b12ca5ef168fc28c6d7b19feeb479e3f64236a651db2cb9c3073c933ae8b8",
+                    "size": 4077,
+                    "dependencies": {
+                        "revenge.api": {
+                            "version": "*"
+                        },
+                        "discord": {
+                            "version": "*"
+                        }
+                    }
+                }
+            }
+        },
         "dev.8uvu.message-logger": {
             "name": "MessageLogger",
             "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
             "author": "8uvu",
             "channels": {
-                "latest": "1.1.0"
+                "latest": "1.1.1"
             },
             "versions": {
-                "1.1.0": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.0.zip",
-                    "sha256": "92ca0cc687c8d8e444ee3451e55ca5236237718018df34b01d7be8b8e944b617",
-                    "size": 5869,
+                "1.1.1": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.1.zip",
+                    "sha256": "0f8e14978a70bc62f8cd714de9b17c6b5eabf98e68815075294d8a734a204fd9",
+                    "size": 6236,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
