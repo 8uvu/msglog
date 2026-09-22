@@ -1,8 +1,6 @@
-(() => { const module = { exports: {} }; const exports = module.exports; var __create = Object.create;
-var __defProp = Object.defineProperty;
+(() => { const module = { exports: {} }; const exports = module.exports; var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -16,71 +14,155 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // js/index.tsx
 var index_exports = {};
 __export(index_exports, {
-  default: () => index_default
+  default: () => index_default2
 });
 module.exports = __toCommonJS(index_exports);
-var import_react = (({ default: revenge.react.React, ...revenge.react.React }));
-var import_react_native = (({ ...revenge.react.ReactNative }));
-var import_clipboard = __toESM((({ default: revenge.externals.ReactNativeClipboard.Clipboard, ...revenge.externals.ReactNativeClipboard.Clipboard })));
-var import_actions = (revenge.discord.actions);
-var import_design = (revenge.discord.design);
-var import_flux = (revenge.discord.flux);
-var import_native = (revenge.discord.native);
-var import_jsx_runtime = (({ jsx: revenge.react.ReactJSXRuntime.jsx, jsxs: revenge.react.ReactJSXRuntime.jsxs, Fragment: revenge.react.ReactJSXRuntime.Fragment }));
 var LOG_FILE = "message-logger.json";
+var DEFAULT_SETTINGS = {
+  enabled: true,
+  logDeletes: true,
+  logEdits: true,
+  ghostPings: true,
+  ignoreBots: true,
+  ignoreSelf: false,
+  maxStored: 300,
+  ignoredChannels: "",
+  ignoredUsers: ""
+};
+function getReact() {
+  try {
+    const r = revenge.react;
+    return r.React || r;
+  } catch {
+    return null;
+  }
+}
+function getRN() {
+  try {
+    return revenge.react.ReactNative || null;
+  } catch {
+    return null;
+  }
+}
+function getFlux() {
+  try {
+    return revenge.discord.flux || null;
+  } catch {
+    return null;
+  }
+}
+function getActions() {
+  try {
+    return revenge.discord.actions || null;
+  } catch {
+    return null;
+  }
+}
+function getFileModule() {
+  try {
+    return revenge.discord.native.FileModule || null;
+  } catch {
+    return null;
+  }
+}
+function getDesign() {
+  try {
+    const d = revenge.discord.design;
+    return d && (d.Design || d) || null;
+  } catch {
+    return null;
+  }
+}
+function getClipboard() {
+  try {
+    return revenge.externals.ReactNativeClipboard.Clipboard || null;
+  } catch {
+    return null;
+  }
+}
 var log = {};
 var docRoot = "";
 var flushTimer = null;
 var apiRef = null;
+var cfg = { ...DEFAULT_SETTINGS };
+var cfgStorage = null;
 function logPath() {
   return (docRoot.length ? docRoot.replace(/\/+$/, "") + "/" : "") + LOG_FILE;
 }
-function cacheOf(jsonStorage) {
-  var _a;
+function coerceSettings(raw) {
+  const c = raw && typeof raw === "object" ? raw : {};
+  return {
+    enabled: c.enabled !== false,
+    logDeletes: c.logDeletes !== false,
+    logEdits: c.logEdits !== false,
+    ghostPings: c.ghostPings !== false,
+    ignoreBots: c.ignoreBots !== false,
+    ignoreSelf: !!c.ignoreSelf,
+    maxStored: typeof c.maxStored === "number" && c.maxStored >= 10 && c.maxStored <= 1e4 ? Math.floor(c.maxStored) : DEFAULT_SETTINGS.maxStored,
+    ignoredChannels: typeof c.ignoredChannels === "string" ? c.ignoredChannels : "",
+    ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : ""
+  };
+}
+function refreshConfigFromStorage() {
   try {
-    if (jsonStorage && typeof jsonStorage.get === "function") {
-      const v = jsonStorage.get();
-      if (v && typeof v === "object") return v;
+    if (cfgStorage && cfgStorage.cache && typeof cfgStorage.cache === "object") {
+      cfg = coerceSettings(cfgStorage.cache);
     }
   } catch {
   }
-  return (_a = jsonStorage == null ? void 0 : jsonStorage.cache) != null ? _a : {};
 }
-async function loadLog(logger) {
-  var _a, _b, _c;
+function hostLog(msg) {
+  var _a, _b;
   try {
-    docRoot = String((_a = import_native.FileModule.getConstants().DocumentsDirPath) != null ? _a : "");
-    const raw = await import_native.FileModule.readFile(logPath(), "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") log = parsed;
-    (_b = logger == null ? void 0 : logger.log) == null ? void 0 : _b.call(logger, "MessageLogger: loaded " + Object.keys(log).length + " entries");
-  } catch (e) {
-    log = {};
-    (_c = logger == null ? void 0 : logger.log) == null ? void 0 : _c.call(logger, "MessageLogger: starting with an empty log");
+    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.log) == null ? void 0 : _b.call(_a, "[MessageLogger] " + msg);
+  } catch {
   }
 }
-async function persistLog(jsonStorage) {
-  var _a, _b, _c, _d;
+function hostError(msg, e) {
+  var _a, _b;
   try {
-    const cfg = readCfg(jsonStorage);
-    await import_native.FileModule.writeFile("documents", LOG_FILE, JSON.stringify(log), "utf8");
-    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.log) == null ? void 0 : _b.call(_a, "MessageLogger: saved " + Object.keys(log).length + " entries");
-    void cfg;
+    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.error) == null ? void 0 : _b.call(
+      _a,
+      "[MessageLogger] " + msg,
+      e instanceof Error ? e.message : e
+    );
+  } catch {
+  }
+}
+async function loadLog() {
+  var _a;
+  const fm = getFileModule();
+  if (!fm) {
+    hostError("FileModule unavailable \u2014 log cannot be loaded or saved");
+    return;
+  }
+  try {
+    docRoot = String((_a = fm.getConstants().DocumentsDirPath) != null ? _a : "");
+  } catch {
+    docRoot = "";
+  }
+  try {
+    const raw = await fm.readFile(logPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") log = parsed;
+    hostLog("loaded " + Object.keys(log).length + " entries");
+  } catch {
+    log = {};
+    hostLog("starting with an empty log");
+  }
+}
+async function persistLog() {
+  const fm = getFileModule();
+  if (!fm) return;
+  try {
+    await fm.writeFile("documents", LOG_FILE, JSON.stringify(log), "utf8");
   } catch (e) {
-    (_d = (_c = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _c.error) == null ? void 0 : _d.call(_c, "MessageLogger: failed to write log file", e instanceof Error ? e.message : String(e));
+    hostError("failed to write log file", e);
   }
 }
 function prune(max) {
@@ -97,7 +179,7 @@ function inList(id, raw) {
 function currentUserId() {
   var _a, _b, _c, _d, _e;
   try {
-    return String((_e = (_d = (_c = (_b = (_a = import_flux.Stores) == null ? void 0 : _a.UserStore) == null ? void 0 : _b.getCurrentUser) == null ? void 0 : _c.call(_b)) == null ? void 0 : _d.id) != null ? _e : "");
+    return String((_e = (_d = (_c = (_b = (_a = getFlux()) == null ? void 0 : _a.Stores) == null ? void 0 : _b.UserStore) == null ? void 0 : _c.getCurrentUser) == null ? void 0 : _d.call(_c).id) != null ? _e : "");
   } catch {
     return "";
   }
@@ -119,9 +201,9 @@ function snapshotOf(message, me) {
   return {
     id: String((_b = message == null ? void 0 : message.id) != null ? _b : ""),
     channelId: String((_d = (_c = message == null ? void 0 : message.channelId) != null ? _c : message == null ? void 0 : message.channel_id) != null ? _d : ""),
-    authorId: String((_e = author == null ? void 0 : author.id) != null ? _e : ""),
-    authorTag: (author == null ? void 0 : author.globalName) || (author == null ? void 0 : author.username) || "Unknown",
-    bot: !!(author == null ? void 0 : author.bot),
+    authorId: String((_e = author.id) != null ? _e : ""),
+    authorTag: author.globalName || author.username || "Unknown",
+    bot: !!author.bot,
     content: String((_f = message == null ? void 0 : message.content) != null ? _f : ""),
     attachments: Array.isArray(message == null ? void 0 : message.attachments) ? message.attachments.map((a) => {
       var _a2, _b2;
@@ -132,27 +214,31 @@ function snapshotOf(message, me) {
   };
 }
 var seen = /* @__PURE__ */ new Map();
-function toastGhostPing(entry) {
+function toast(content, key) {
   var _a, _b, _c;
   try {
-    let where = "a channel";
-    try {
-      const ch = (_c = (_b = (_a = import_flux.Stores) == null ? void 0 : _a.ChannelStore) == null ? void 0 : _b.getChannel) == null ? void 0 : _c.call(_b, entry.channelId);
-      if (ch == null ? void 0 : ch.name) where = "#" + ch.name;
-    } catch {
-    }
-    import_actions.ToastActionCreators.open({
-      key: "msglogger-ghostping-" + entry.id,
-      content: `Ghost ping by ${entry.authorTag} in ${where}: ${entry.content.slice(0, 120)}`
-    });
+    (_c = (_b = (_a = getActions()) == null ? void 0 : _a.ToastActionCreators) == null ? void 0 : _b.open) == null ? void 0 : _c.call(_b, { key, content });
   } catch {
   }
 }
-function handleCreate(payload, cfg) {
+function toastGhostPing(entry) {
+  var _a, _b, _c, _d;
+  let where = "a channel";
+  try {
+    const ch = (_d = (_c = (_b = (_a = getFlux()) == null ? void 0 : _a.Stores) == null ? void 0 : _b.ChannelStore) == null ? void 0 : _c.getChannel) == null ? void 0 : _d.call(_c, entry.channelId);
+    if (ch == null ? void 0 : ch.name) where = "#" + ch.name;
+  } catch {
+  }
+  toast(
+    "Ghost ping by " + entry.authorTag + " in " + where + ": " + entry.content.slice(0, 120),
+    "msglogger-ghostping-" + entry.id
+  );
+}
+function handleCreate(payload) {
   var _a, _b;
+  if (!cfg.enabled) return;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
-  if (!cfg.enabled) return;
   const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
   if (inList(channelId, cfg.ignoredChannels)) return;
   const snap = snapshotOf(message, currentUserId());
@@ -165,13 +251,13 @@ function handleCreate(payload, cfg) {
     if (!first.done) seen.delete(first.value);
   }
 }
-function handleDelete(payload, cfg) {
+function handleDelete(payload) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   if (!cfg.enabled || !cfg.logDeletes) return;
   const id = String((_c = (_b = (_a = payload == null ? void 0 : payload.message) == null ? void 0 : _a.id) != null ? _b : payload == null ? void 0 : payload.id) != null ? _c : "");
   const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
   if (!id || inList(channelId, cfg.ignoredChannels)) return;
-  const snap = (_h = seen.get(id)) != null ? _h : { ...snapshotOf((_g = payload == null ? void 0 : payload.message) != null ? _g : { id, channelId }, currentUserId()) };
+  const snap = (_h = seen.get(id)) != null ? _h : snapshotOf((_g = payload == null ? void 0 : payload.message) != null ? _g : { id, channelId }, currentUserId());
   if (cfg.ignoreBots && snap.bot) {
     seen.delete(id);
     return;
@@ -194,16 +280,16 @@ function handleDelete(payload, cfg) {
     ghostPing: ghost
   };
   prune(cfg.maxStored);
-  persistLog();
+  void persistLog();
   if (ghost) toastGhostPing(log[id]);
 }
-function handleDeleteBulk(payload, cfg) {
+function handleDeleteBulk(payload) {
   const ids = Array.isArray(payload == null ? void 0 : payload.ids) ? payload.ids : [];
   for (const id of ids) {
-    handleDelete({ message: { id, channelId: payload == null ? void 0 : payload.channelId } }, cfg);
+    handleDelete({ message: { id, channelId: payload == null ? void 0 : payload.channelId } });
   }
 }
-function handleUpdate(payload, cfg) {
+function handleUpdate(payload) {
   var _a, _b, _c, _d;
   if (!cfg.enabled || !cfg.logEdits) return;
   const message = payload == null ? void 0 : payload.message;
@@ -218,266 +304,307 @@ function handleUpdate(payload, cfg) {
   if (inList(snap.authorId, cfg.ignoredUsers)) return;
   seen.set(id, snap);
   const prevContent = prev && typeof prev.content === "string" ? prev.content : null;
-  const isRealEdit = prevContent !== null && message.edited_timestamp && prevContent !== snap.content;
+  const isRealEdit = prevContent !== null && !!message.edited_timestamp && prevContent !== snap.content;
   if (!isRealEdit && !log[id]) return;
   const existing = log[id];
   log[id] = {
     ...snap,
     status: "edited",
-    edits: [...(_c = existing == null ? void 0 : existing.edits) != null ? _c : [], ...isRealEdit && prevContent !== null ? [prevContent] : []].slice(-10),
+    edits: [
+      ...(_c = existing == null ? void 0 : existing.edits) != null ? _c : [],
+      ...isRealEdit && prevContent !== null ? [prevContent] : []
+    ].slice(-10),
     mentionsMe: snap.mentionsMe,
     ghostPing: (_d = existing == null ? void 0 : existing.ghostPing) != null ? _d : false
   };
   prune(cfg.maxStored);
-  persistLog();
+  void persistLog();
 }
-function readCfg(jsonStorage) {
-  const c = cacheOf(jsonStorage);
-  return {
-    enabled: c.enabled !== false,
-    logDeletes: c.logDeletes !== false,
-    logEdits: c.logEdits !== false,
-    ghostPings: c.ghostPings !== false,
-    ignoreBots: c.ignoreBots !== false,
-    ignoreSelf: !!c.ignoreSelf,
-    maxStored: typeof c.maxStored === "number" ? c.maxStored : 300,
-    ignoredChannels: typeof c.ignoredChannels === "string" ? c.ignoredChannels : "",
-    ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : ""
-  };
-}
-function register(cleanup, logger, jsonStorage, event, handler) {
-  try {
-    cleanup(
-      (0, import_flux.onFluxEventDispatched)(event, (payload) => {
-        try {
-          handler(payload, readCfg(jsonStorage));
-        } catch (e) {
-          logger.error(`[MessageLogger] ${event} handler failed: ` + (e instanceof Error ? e.message : String(e)));
-        }
-        return payload;
-      })
-    );
-    logger.log(`[MessageLogger] registered ${event}`);
-  } catch (e) {
-    logger.error(`[MessageLogger] could not register ${event}: ` + (e instanceof Error ? e.message : String(e)));
-  }
-}
-var index_default = plugin({
-  jsonStorage: {
-    load: true,
-    default: {
-      enabled: true,
-      logDeletes: true,
-      logEdits: true,
-      ghostPings: true,
-      ignoreBots: true,
-      ignoreSelf: false,
-      maxStored: 300,
-      ignoredChannels: "",
-      ignoredUsers: ""
-    }
-  },
-  async start({ cleanup, jsonStorage, logger }) {
-    try {
-      apiRef = { logger };
-      await loadLog(logger);
-      register(cleanup, logger, jsonStorage, "MESSAGE_CREATE", handleCreate);
-      register(cleanup, logger, jsonStorage, "MESSAGE_DELETE", handleDelete);
-      register(cleanup, logger, jsonStorage, "MESSAGE_DELETE_BULK", handleDeleteBulk);
-      register(cleanup, logger, jsonStorage, "MESSAGE_UPDATE", handleUpdate);
-      cleanup(() => {
-        if (flushTimer) {
-          clearTimeout(flushTimer);
-          flushTimer = null;
-        }
-        persistLog(jsonStorage);
-        seen.clear();
-        apiRef = null;
-      });
-      logger.log("MessageLogger started");
-      try {
-        import_actions.ToastActionCreators.open({ key: "msglogger-start", content: "MessageLogger started" });
-      } catch {
+function makeSettingsComponent() {
+  const React = getReact();
+  if (!React) return () => null;
+  const el = React.createElement.bind(React);
+  const RN = getRN() || {};
+  const { View = "view", Text = "text", TextInput = "input", Pressable = View } = RN;
+  const SwitchRowFallback = (props) => el(
+    Pressable,
+    {
+      onPress: () => props.onValueChange(!props.value),
+      style: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        alignItems: "center"
       }
-    } catch (e) {
-      logger.error("[MessageLogger] start failed: " + (e instanceof Error ? e.message : String(e)));
-    }
-  },
-  SettingsComponent({ api }) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
-    const settings = api.jsonStorage.use();
-    const [entries, setEntries] = (0, import_react.useState)([]);
-    const [filter, setFilter] = (0, import_react.useState)("all");
-    const [query, setQuery] = (0, import_react.useState)("");
-    const [refreshTick, setRefreshTick] = (0, import_react.useState)(0);
+    },
+    el(Text, { style: { flex: 1 } }, props.label),
+    el(Text, { style: { opacity: 0.7, marginLeft: 8 } }, props.value ? "On" : "Off")
+  );
+  function SwitchRow(props) {
+    const design = getDesign();
+    const Row = design == null ? void 0 : design.TableSwitchRow;
+    if (Row) return el(Row, props, null);
+    return el(SwitchRowFallback, props, null);
+  }
+  function RowGroup(props) {
+    const design = getDesign();
+    const Group = design == null ? void 0 : design.TableRowGroup;
+    if (Group) return el(Group, { title: props.title }, ...props.children);
+    return el(
+      View,
+      { style: { marginVertical: 8 } },
+      el(Text, { style: { fontWeight: "bold", padding: 12 } }, props.title),
+      ...props.children
+    );
+  }
+  const DText = (props) => {
+    const design = getDesign();
+    const T = design == null ? void 0 : design.Text;
+    return el(T || Text, props, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
+  };
+  return function SettingsComponent2({ api }) {
+    var _a, _b, _c, _d, _e;
+    const settings = (_c = (_b = (_a = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a.use) == null ? void 0 : _b.call(_a)) != null ? _c : cfg;
+    const [entries, setEntries] = React.useState([]);
+    const [filter, setFilter] = React.useState("all");
+    const [query, setQuery] = React.useState("");
+    const [refreshTick, setRefreshTick] = React.useState(0);
     const reload = async () => {
+      var _a2;
       const merged = {};
       try {
-        const raw = await import_native.FileModule.readFile(logPath(), "utf8");
+        const raw = await ((_a2 = getFileModule()) == null ? void 0 : _a2.readFile(logPath(), "utf8"));
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          for (const [k, v] of Object.entries(parsed)) merged[k] = v;
-        }
+        if (parsed && typeof parsed === "object") Object.assign(merged, parsed);
       } catch {
       }
-      for (const [k, v] of Object.entries(log)) merged[k] = v;
+      Object.assign(merged, log);
       const list = Object.values(merged).sort((a, b) => b.timestamp - a.timestamp);
       setEntries(list.slice(0, 100));
     };
-    (0, import_react.useEffect)(() => {
-      reload();
+    React.useEffect(() => {
+      void reload();
     }, [refreshTick]);
-    const { TableRowGroup, TableSwitchRow, Text: DText } = import_design.Design;
     const visible = entries.filter((m) => {
       if (filter === "deleted" && m.status !== "deleted") return false;
       if (filter === "edited" && m.status !== "edited") return false;
       if (filter === "ghost" && !m.ghostPing) return false;
       const q = query.trim().toLowerCase();
-      if (q && !(m.content.toLowerCase().includes(q) || m.authorTag.toLowerCase().includes(q))) return false;
+      if (q && !(m.content.toLowerCase().includes(q) || m.authorTag.toLowerCase().includes(q)))
+        return false;
       return true;
     });
     const removeEntry = async (id) => {
       try {
         delete log[id];
         await persistLog();
-        reload();
+        void reload();
       } catch {
       }
     };
     const exportLog = async () => {
       try {
-        import_clipboard.default.setString(JSON.stringify(Object.values(log), null, 2));
-        import_actions.ToastActionCreators.open({ key: "msglogger-export", content: "Log copied to clipboard" });
-      } catch (e) {
-        import_actions.ToastActionCreators.open({ key: "msglogger-export-fail", content: "Export failed \u2014 see log file" });
+        const clip = getClipboard();
+        if (!(clip == null ? void 0 : clip.setString)) throw new Error("clipboard unavailable");
+        clip.setString(JSON.stringify(Object.values(log), null, 2));
+        toast("Log copied to clipboard", "msglogger-export");
+      } catch {
+        toast("Export failed \u2014 clipboard unavailable", "msglogger-export-fail");
       }
     };
     const clearLog = async () => {
+      var _a2;
       log = {};
       try {
-        await import_native.FileModule.writeFile("documents", LOG_FILE, "{}", "utf8");
+        await ((_a2 = getFileModule()) == null ? void 0 : _a2.writeFile("documents", LOG_FILE, "{}", "utf8"));
       } catch {
       }
-      reload();
+      void reload();
     };
-    const tab = (key, label) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Pressable, { onPress: () => setFilter(key), style: { paddingVertical: 8, paddingHorizontal: 10 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Text, { style: { fontWeight: filter === key ? "bold" : "normal" }, children: label }) }, key);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react_native.View, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TableRowGroup, { title: "MessageLogger", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          TableSwitchRow,
-          {
-            label: "Enabled",
-            value: (_a = settings == null ? void 0 : settings.enabled) != null ? _a : true,
-            onValueChange: (v) => api.jsonStorage.set({ enabled: v })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          TableSwitchRow,
-          {
-            label: "Log deleted messages",
-            value: (_b = settings == null ? void 0 : settings.logDeletes) != null ? _b : true,
-            onValueChange: (v) => api.jsonStorage.set({ logDeletes: v })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          TableSwitchRow,
-          {
-            label: "Log edited messages",
-            value: (_c = settings == null ? void 0 : settings.logEdits) != null ? _c : true,
-            onValueChange: (v) => api.jsonStorage.set({ logEdits: v })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          TableSwitchRow,
-          {
-            label: "Ghost ping toasts",
-            subLabel: "Toast when a message mentioning you is deleted",
-            value: (_d = settings == null ? void 0 : settings.ghostPings) != null ? _d : true,
-            onValueChange: (v) => api.jsonStorage.set({ ghostPings: v })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          TableSwitchRow,
-          {
-            label: "Ignore bot messages",
-            value: (_e = settings == null ? void 0 : settings.ignoreBots) != null ? _e : true,
-            onValueChange: (v) => api.jsonStorage.set({ ignoreBots: v })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          TableSwitchRow,
-          {
-            label: "Ignore your own messages",
-            value: (_f = settings == null ? void 0 : settings.ignoreSelf) != null ? _f : false,
-            onValueChange: (v) => api.jsonStorage.set({ ignoreSelf: v })
-          }
+    const tab = (key, label) => el(
+      Pressable,
+      {
+        key,
+        onPress: () => setFilter(key),
+        style: { paddingVertical: 8, paddingHorizontal: 10 }
+      },
+      el(
+        Text,
+        { style: { fontWeight: filter === key ? "bold" : "normal" } },
+        label
+      )
+    );
+    const sw = (key, label, subLabel) => el(SwitchRow, {
+      key,
+      label,
+      subLabel,
+      value: (settings == null ? void 0 : settings[key]) !== false,
+      onValueChange: (v) => {
+        var _a2, _b2;
+        return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { [key]: v });
+      }
+    });
+    return el(
+      View,
+      null,
+      el(
+        RowGroup,
+        { title: "MessageLogger" },
+        sw("enabled", "Enabled"),
+        sw("logDeletes", "Log deleted messages"),
+        sw("logEdits", "Log edited messages"),
+        sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
+        sw("ignoreBots", "Ignore bot messages"),
+        sw("ignoreSelf", "Ignore your own messages")
+      ),
+      el(
+        RowGroup,
+        { title: "Ignored IDs" },
+        el(DText, null, "Comma-separated channel IDs never get logged."),
+        el(TextInput, {
+          placeholder: "Channel IDs",
+          defaultValue: (_d = settings == null ? void 0 : settings.ignoredChannels) != null ? _d : "",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
+          },
+          style: { padding: 8 }
+        }),
+        el(DText, null, "Comma-separated user IDs never get logged."),
+        el(TextInput, {
+          placeholder: "User IDs",
+          defaultValue: (_e = settings == null ? void 0 : settings.ignoredUsers) != null ? _e : "",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
+          },
+          style: { padding: 8 }
+        })
+      ),
+      el(
+        RowGroup,
+        { title: "Saved log (" + visible.length + " shown)" },
+        el(View, { style: { flexDirection: "row" } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
+        el(TextInput, {
+          placeholder: "Search author or text\u2026",
+          value: query,
+          onChangeText: setQuery,
+          style: { padding: 8 }
+        }),
+        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 50).map(
+          (m) => el(
+            View,
+            { key: m.id, style: { paddingVertical: 6 } },
+            el(
+              DText,
+              null,
+              "[" + (m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED") + "] " + m.authorTag + " \u2014 " + new Date(m.timestamp).toLocaleString()
+            ),
+            el(DText, null, m.content || "(no text content)"),
+            m.attachments.length > 0 && el(DText, null, m.attachments.length + " attachment(s) saved as links"),
+            m.edits.length > 0 && el(DText, null, "Previous versions: " + m.edits.join("  |  ")),
+            el(
+              Pressable,
+              { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
+              el(Text, null, "Delete entry")
+            )
+          )
         )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TableRowGroup, { title: "Ignored IDs", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DText, { children: "Comma-separated channel IDs never get logged." }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          import_react_native.TextInput,
-          {
-            placeholder: "Channel IDs",
-            defaultValue: (_g = settings == null ? void 0 : settings.ignoredChannels) != null ? _g : "",
-            onChangeText: (t) => api.jsonStorage.set({ ignoredChannels: t }),
-            style: { padding: 8 }
-          }
+      ),
+      el(
+        View,
+        { style: { padding: 12 } },
+        el(
+          Pressable,
+          { onPress: () => void exportLog(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { fontWeight: "bold" } }, "Copy log JSON to clipboard")
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DText, { children: "Comma-separated user IDs never get logged." }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          import_react_native.TextInput,
-          {
-            placeholder: "User IDs",
-            defaultValue: (_h = settings == null ? void 0 : settings.ignoredUsers) != null ? _h : "",
-            onChangeText: (t) => api.jsonStorage.set({ ignoredUsers: t }),
-            style: { padding: 8 }
-          }
+        el(
+          Pressable,
+          { onPress: () => void clearLog(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { fontWeight: "bold" } }, "Clear saved log")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void reload(), style: { padding: 12, alignItems: "center" } },
+          el(Text, null, "Refresh list")
         )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TableRowGroup, { title: `Saved log (${visible.length} shown)`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react_native.View, { style: { flexDirection: "row" }, children: [
-          tab("all", "All"),
-          tab("deleted", "Deleted"),
-          tab("edited", "Edited"),
-          tab("ghost", "Ghost pings")
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          import_react_native.TextInput,
-          {
-            placeholder: "Search author or text\u2026",
-            value: query,
-            onChangeText: setQuery,
-            style: { padding: 8 }
-          }
-        ),
-        visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DText, { children: "Nothing logged yet. Deleted and edited messages will appear here." }) : visible.slice(0, 50).map((m) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react_native.View, { style: { paddingVertical: 6 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DText, { children: [
-            "[",
-            m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED",
-            "] ",
-            m.authorTag,
-            " \u2014 ",
-            new Date(m.timestamp).toLocaleString()
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DText, { children: m.content || "(no text content)" }),
-          m.attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DText, { children: [
-            m.attachments.length,
-            " attachment(s) saved as links"
-          ] }),
-          m.edits.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DText, { children: [
-            "Previous versions: ",
-            m.edits.join("  |  ")
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Pressable, { onPress: () => removeEntry(m.id), style: { paddingVertical: 4 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Text, { children: "Delete entry" }) })
-        ] }, m.id))
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react_native.View, { style: { padding: 12 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Pressable, { onPress: exportLog, style: { padding: 12, alignItems: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Text, { style: { fontWeight: "bold" }, children: "Copy log JSON to clipboard" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Pressable, { onPress: clearLog, style: { padding: 12, alignItems: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Text, { style: { fontWeight: "bold" }, children: "Clear saved log" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Pressable, { onPress: () => reload(), style: { padding: 12, alignItems: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react_native.Text, { children: "Refresh list" }) })
-      ] })
-    ] });
-  }
+      )
+    );
+  };
+}
+var _SettingsComponent = null;
+function SettingsComponent(props) {
+  if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+  return _SettingsComponent(props);
+}
+var index_default = plugin({
+  jsonStorage: {
+    load: true,
+    default: DEFAULT_SETTINGS
+  },
+  async start({ cleanup, jsonStorage, logger }) {
+    apiRef = { logger };
+    try {
+      cfgStorage = jsonStorage != null ? jsonStorage : null;
+      refreshConfigFromStorage();
+      if (jsonStorage) {
+        try {
+          await jsonStorage.get();
+          refreshConfigFromStorage();
+          cleanup(
+            jsonStorage.subscribe(() => {
+              refreshConfigFromStorage();
+            })
+          );
+        } catch (e) {
+          hostError("jsonStorage unavailable, using default settings", e);
+        }
+      }
+      await loadLog();
+      const flux = getFlux();
+      if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+        hostError("flux API unavailable \u2014 capture disabled this session");
+        toast("MessageLogger: flux unavailable", "msglogger-start-fail");
+        return;
+      }
+      const register = (event, handler) => {
+        try {
+          cleanup(
+            flux.onFluxEventDispatched(event, (payload) => {
+              try {
+                handler(payload);
+              } catch (e) {
+                hostError(event + " handler failed", e);
+              }
+              return payload;
+            })
+          );
+          hostLog("registered " + event);
+        } catch (e) {
+          hostError("could not register " + event, e);
+        }
+      };
+      register("MESSAGE_CREATE", handleCreate);
+      register("MESSAGE_DELETE", handleDelete);
+      register("MESSAGE_DELETE_BULK", handleDeleteBulk);
+      register("MESSAGE_UPDATE", handleUpdate);
+      cleanup(() => {
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+        void persistLog();
+        seen.clear();
+        apiRef = null;
+      });
+      hostLog("started");
+    } catch (e) {
+      hostError("start failed", e);
+    }
+  },
+  SettingsComponent
 });
+var index_default2 = index_default;
 ; return (module.exports && module.exports.default) || module.exports; })()
