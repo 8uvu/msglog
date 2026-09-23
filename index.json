@@ -13,7 +13,7 @@
             "versions": {
                 "1.0.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.2.zip",
-                    "sha256": "1803012fbff115f1efed84f3f99533d3cc22bc18d8f31afcbb62f924abdbb550",
+                    "sha256": "c3ad9f5bcf864b9ff8b52125a8711926335393344342324cb50675f215bf4b27",
                     "size": 5752,
                     "dependencies": {
                         "revenge.api": {
@@ -36,7 +36,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.host-probe@1.0.0.zip",
-                    "sha256": "517490c6fb057877baad23e0bd631ea1863999266835726e2651e4765766131a",
+                    "sha256": "1be17058a9170b7a08e9c114b9fb31fbe9bf8ecdc5abc07700cffdbad850034c",
                     "size": 3531,
                     "dependencies": {
                         "revenge.api": {
@@ -54,16 +54,39 @@
             "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
             "author": "8uvu",
             "channels": {
-                "latest": "1.1.4"
+                "latest": "1.1.5"
             },
             "versions": {
-                "1.1.4": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.4.zip",
-                    "sha256": "078ca99bb554eda6cba9dacbe3409bb6b4790b58664eb3839393703517bcbb54",
-                    "size": 8933,
+                "1.1.5": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.1.5.zip",
+                    "sha256": "a98c611a75f2ca89c2e4e1a8e64a92dbe37df7c9a9e96acc899bb74d5b5302bf",
+                    "size": 9233,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
+                        },
+                        "discord": {
+                            "version": "*"
+                        }
+                    }
+                }
+            }
+        },
+        "dev.8uvu.quick-check": {
+            "name": "Quick Check",
+            "description": "Diagnostic: pops a native Alert with your device's full host diagnosis (React, flux dispatcher, stores, file module) the moment the plugin is enabled.",
+            "author": "8uvu",
+            "channels": {
+                "latest": "1.0.0"
+            },
+            "versions": {
+                "1.0.0": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.quick-check@1.0.0.zip",
+                    "sha256": "ea859fcf5ac3818211e09aaab4b588b200e0517c2c2b72fcce8be35f48b17260",
+                    "size": 2870,
+                    "dependencies": {
+                        "revenge.api": {
+                            "version": "*"
                         },
                         "discord": {
                             "version": "*"

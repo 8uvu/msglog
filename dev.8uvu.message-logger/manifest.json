@@ -14,7 +14,7 @@
             }
         ]
     },
-    "version": "1.1.4",
+    "version": "1.1.5",
     "dependencies": {
         "revenge.api": {
             "version": ">=1"
@@ -26,7 +26,7 @@
     "dist": {
         "script": "index.js"
     },
-    "hash": "9b70511cb72eaa42caa5dc3c902d6d4d68225ffe3bffd9c5fe88d6851f32fa71",
+    "hash": "cb10ef328d3b512f83078d5c789638f486b69a7752aec2f61e7d579f11aec196",
     "authors": [
         {
             "name": "8uvu"

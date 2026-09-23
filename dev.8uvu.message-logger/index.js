@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.1.4";
+var PLUGIN_VERSION = "1.1.5";
 var LOG_FILE = "message-logger.json";
 var DEFAULT_SETTINGS = {
   enabled: true,
@@ -492,6 +492,27 @@ function toast(content, key) {
   } catch {
   }
 }
+function alertBox(title, msg) {
+  var _a, _b, _c;
+  try {
+    const Alert = (_a = getRN()) == null ? void 0 : _a.Alert;
+    if (Alert == null ? void 0 : Alert.alert) {
+      Alert.alert(title, msg);
+      return;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const alertApi = (_c = (_b = v == null ? void 0 : v.ui) == null ? void 0 : _b.alerts) == null ? void 0 : _c.showConfirmationAlert;
+    if (typeof alertApi === "function") {
+      alertApi({ title, content: msg, confirmText: "OK", cancelText: "Close", onConfirm: () => {
+      }, onCancel: () => {
+      } });
+    }
+  } catch {
+  }
+}
 function getChannelStore() {
   var _a, _b, _c, _d;
   try {
@@ -952,6 +973,7 @@ async function startNext({ cleanup, jsonStorage, logger }) {
   lastStartError = null;
   hostLog("started (Revenge Next)");
   toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Revenge (Next)\nFlux handlers: " + handlersRegistered + "/4\nIf you can read this, the new build is running.");
 }
 async function startClassic() {
   var _a, _b, _c, _d, _e, _f;
@@ -1005,12 +1027,29 @@ async function startClassic() {
   lastStartError = null;
   hostLog("started (Revenge Classic / vendetta host)");
   toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Classic / vendetta\nStorage: " + (storageKind != null ? storageKind : "none") + "\nFlux handlers: " + handlersRegistered + "/4\nIf you can read this, the new build is running.");
 }
 var _SettingsComponent = null;
 function SettingsComponent(props) {
-  if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
   if (hostKind !== "next") refreshClassicConfig();
-  return _SettingsComponent(props);
+  try {
+    if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+    return _SettingsComponent(props);
+  } catch (e) {
+    try {
+      const RN = getRN();
+      const React = getReact();
+      if (React && (RN == null ? void 0 : RN.Text)) {
+        return React.createElement(
+          RN.Text,
+          { style: { padding: 12 } },
+          "MessageLogger settings crashed: " + (e instanceof Error ? e.message : String(e))
+        );
+      }
+    } catch {
+    }
+    return null;
+  }
 }
 var __instance = {
   jsonStorage: {
