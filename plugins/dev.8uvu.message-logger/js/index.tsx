@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.1.3';
+const PLUGIN_VERSION = '1.1.4';
 
 interface Settings {
     enabled: boolean;
@@ -89,14 +89,16 @@ function getReact(): any {
     try {
         if (typeof bunny !== 'undefined') {
             const b: any = bunny;
-            const r = b.React || b.common?.React || b.api?.react?.React;
+            const r = b.React || b.common?.React || b.metro?.common?.React || b.api?.react?.React;
             if (r) return r;
         }
     } catch {}
     try {
         if (typeof vendetta !== 'undefined') {
             const v: any = vendetta;
-            const r = v.common?.React || v.React;
+            // The vendetta compat object nests Discord's modules under
+            // vendetta.metro.common (NOT vendetta.common).
+            const r = v.common?.React || v.metro?.common?.React || v.React;
             if (r) return r;
         }
     } catch {}
@@ -113,13 +115,14 @@ function getRN(): any {
     try {
         if (typeof bunny !== 'undefined') {
             const b: any = bunny;
-            const rn = b.ReactNative || b.common?.ReactNative || b.api?.react?.ReactNative;
+            const rn = b.ReactNative || b.common?.ReactNative || b.metro?.common?.ReactNative || b.api?.react?.ReactNative;
             if (rn) return rn;
         }
     } catch {}
     try {
         if (typeof vendetta !== 'undefined') {
-            const rn: any = (vendetta as any)?.common?.ReactNative;
+            const v: any = vendetta;
+            const rn = v.common?.ReactNative || v.metro?.common?.ReactNative;
             if (rn) return rn;
         }
     } catch {}
@@ -152,7 +155,9 @@ function getFlux(): any {
     } catch {}
     try {
         if (typeof vendetta !== 'undefined') {
-            const fd: any = (vendetta as any)?.common?.FluxDispatcher;
+            const v: any = vendetta;
+            // Compat object: vendetta.metro.common.FluxDispatcher.
+            const fd: any = v?.common?.FluxDispatcher ?? v?.metro?.common?.FluxDispatcher;
             if (fd && typeof fd.addInterceptor === 'function') {
                 // Same adapter shape: the dispatcher's interceptors receive
                 // every dispatch; returning false blocks, undefined passes.
@@ -179,13 +184,15 @@ function getActions(): any {
     try {
         if (typeof bunny !== 'undefined') {
             const b: any = bunny;
-            const a = b.common?.ToastActionCreators || b.api?.actions?.ToastActionCreators;
+            // bunny has no common; ToastActionCreators lives in metro.common.toasts.
+            const a = b.metro?.common?.toasts || b.api?.actions?.ToastActionCreators;
             if (a) return a;
         }
     } catch {}
     try {
         if (typeof vendetta !== 'undefined') {
-            const show = (vendetta as any)?.ui?.toasts?.showToast;
+            const v: any = vendetta;
+            const show = v?.ui?.toasts?.showToast ?? v?.metro?.common?.toasts?.open;
             if (typeof show === 'function') {
                 return { ToastActionCreators: { open: (t: any) => show(String(t?.content ?? '')) } };
             }
@@ -227,7 +234,24 @@ function getDesign(): any {
 
 function getClipboard(): any {
     try {
-        return (revenge as any)?.externals?.ReactNativeClipboard?.Clipboard || null;
+        if (typeof revenge !== 'undefined') {
+            const c: any = (revenge as any)?.externals?.ReactNativeClipboard?.Clipboard;
+            if (c) return c;
+        }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            // bunny has no common; the clipboard module lives in metro.common.
+            const c: any = (bunny as any)?.metro?.common?.clipboard;
+            if (c) return c;
+        }
+    } catch {}
+    try {
+        if (typeof vendetta !== 'undefined') {
+            const v: any = vendetta;
+            const c = v?.metro?.common?.clipboard ?? v?.common?.clipboard;
+            if (c) return c;
+        }
     } catch {}
     return null;
 }
@@ -498,7 +522,7 @@ function toast(content: string, key: string) {
     } catch {}
     try {
         const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
-        const show = v?.ui?.toasts?.showToast ?? v?.common?.toasts?.showToast;
+        const show = v?.ui?.toasts?.showToast ?? v?.metro?.common?.toasts?.open ?? v?.common?.toasts?.showToast;
         if (typeof show === 'function') {
             try {
                 show({ key, content });
@@ -512,9 +536,10 @@ function toast(content: string, key: string) {
     } catch {}
     try {
         const b: any = typeof bunny !== 'undefined' ? bunny : null;
-        const show = b?.api?.toasts?.showToast;
+        // bunny.ui.toasts.showToast(content, asset) — content first.
+        const show = b?.ui?.toasts?.showToast;
         if (typeof show === 'function') {
-            show({ key, content });
+            show(content);
             return;
         }
     } catch {}

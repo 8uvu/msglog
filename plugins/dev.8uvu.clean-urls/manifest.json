@@ -10,7 +10,7 @@
         "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
         "authors": [{ "name": "8uvu" }]
     },
-    "version": "1.0.1",
+    "version": "1.0.2",
     "dependencies": {
         "revenge.api": { "version": "*" },
         "discord": { "version": "*" }

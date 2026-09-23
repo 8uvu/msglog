@@ -76,7 +76,7 @@ function getFlux(): any {
     } catch {}
     try {
         if (typeof vendetta !== 'undefined') {
-            const fd: any = (vendetta as any)?.common?.FluxDispatcher;
+            const fd: any = (vendetta as any)?.common?.FluxDispatcher ?? (vendetta as any)?.metro?.common?.FluxDispatcher;
             if (fd && typeof fd.addInterceptor === 'function') {
                 // Vendetta-manager path: the dispatcher's interceptors see
                 // every dispatch; returning false blocks, undefined passes.
@@ -312,12 +312,12 @@ function getReact(): any {
     try {
         if (typeof bunny !== 'undefined') {
             const b: any = bunny;
-            const r = b.React || b.common?.React || b.api?.react?.React;
+            const r = b.React || b.common?.React || b.metro?.common?.React || b.api?.react?.React;
             if (r) return r;
         }
     } catch {}
     try {
-        const r: any = (vendetta as any)?.common?.React;
+        const r: any = (vendetta as any)?.common?.React ?? (vendetta as any)?.metro?.common?.React;
         if (r) return r;
     } catch {}
     return null;
@@ -333,12 +333,12 @@ function getRN(): any {
     try {
         if (typeof bunny !== 'undefined') {
             const b: any = bunny;
-            const rn = b.ReactNative || b.common?.ReactNative;
+            const rn = b.ReactNative || b.common?.ReactNative || b.metro?.common?.ReactNative;
             if (rn) return rn;
         }
     } catch {}
     try {
-        const rn: any = (vendetta as any)?.common?.ReactNative;
+        const rn: any = (vendetta as any)?.common?.ReactNative ?? (vendetta as any)?.metro?.common?.ReactNative;
         if (rn) return rn;
     } catch {}
     return null;

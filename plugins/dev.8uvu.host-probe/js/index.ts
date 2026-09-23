@@ -55,7 +55,8 @@ function probeBunny(): void {
         push('bunny.plugin.createStorage', typeof b?.plugin?.createStorage);
         push('bunny.plugin.logger', !!b?.plugin?.logger);
         push('bunny.metro', !!b?.metro);
-        push('bunny.common.FluxDispatcher', !!b?.common?.FluxDispatcher);
+        push('bunny.metro.common.React', !!b?.metro?.common?.React);
+        push('bunny.metro.common.FluxDispatcher', !!b?.metro?.common?.FluxDispatcher);
         push('bunny.native.FileModule', !!(b?.api?.native?.FileModule || b?.native?.FileModule));
     } catch (e) {
         push('bunny probe error', e instanceof Error ? e.message : String(e));
@@ -67,8 +68,9 @@ function probeVendetta(): void {
         if (typeof vendetta === 'undefined') return;
         const v: any = vendetta;
         push('vendetta.plugin.storage', !!v?.plugin?.storage);
-        push('vendetta.common.FluxDispatcher', !!v?.common?.FluxDispatcher);
-        push('dispatcher.addInterceptor', typeof v?.common?.FluxDispatcher?.addInterceptor);
+        push('vendetta.metro.common.React', !!v?.metro?.common?.React);
+        push('vendetta.metro.common.FluxDispatcher', !!v?.metro?.common?.FluxDispatcher);
+        push('dispatcher.addInterceptor', typeof (v?.metro?.common?.FluxDispatcher ?? v?.common?.FluxDispatcher)?.addInterceptor);
         push('vendetta.ui.toasts.showToast', typeof v?.ui?.toasts?.showToast ?? typeof v?.common?.toasts?.showToast);
         push('vendetta.metro.findByStoreName', typeof v?.metro?.findByStoreName);
         try {
@@ -107,8 +109,8 @@ let _React: any = null;
 function react(): any {
     if (_React) return _React;
     try { if (typeof revenge !== 'undefined') { const r: any = (revenge as any).react; if (r) _React = r.React || r; } } catch {}
-    try { if (!_React && typeof bunny !== 'undefined') { const b: any = bunny; _React = b.React || b.common?.React; } } catch {}
-    try { if (!_React && typeof vendetta !== 'undefined') _React = (vendetta as any)?.common?.React; } catch {}
+    try { if (!_React && typeof bunny !== 'undefined') { const b: any = bunny; _React = b.React || b.common?.React || b.metro?.common?.React; } } catch {}
+    try { if (!_React && typeof vendetta !== 'undefined') _React = (vendetta as any)?.common?.React ?? (vendetta as any)?.metro?.common?.React; } catch {}
     return _React;
 }
 
@@ -116,8 +118,8 @@ let _RN: any = null;
 function reactNative(): any {
     if (_RN) return _RN;
     try { if (typeof revenge !== 'undefined') _RN = (revenge as any)?.react?.ReactNative; } catch {}
-    try { if (!_RN && typeof bunny !== 'undefined') { const b: any = bunny; _RN = b.ReactNative || b.common?.ReactNative; } } catch {}
-    try { if (!_RN && typeof vendetta !== 'undefined') _RN = (vendetta as any)?.common?.ReactNative; } catch {}
+    try { if (!_RN && typeof bunny !== 'undefined') { const b: any = bunny; _RN = b.ReactNative || b.common?.ReactNative || b.metro?.common?.ReactNative; } } catch {}
+    try { if (!_RN && typeof vendetta !== 'undefined') _RN = (vendetta as any)?.common?.ReactNative ?? (vendetta as any)?.metro?.common?.ReactNative; } catch {}
     return _RN;
 }
 
