@@ -1,0 +1,16 @@
+{
+    "format": 1,
+    "id": "dev.8uvu.quick-check",
+    "name": "Quick Check",
+    "description": "Diagnostic: pops a native Alert with your device's full host diagnosis (React, flux dispatcher, stores, file module) the moment the plugin is enabled.",
+    "author": "8uvu",
+    "version": "1.0.0",
+    "license": "MIT",
+    "dependencies": {
+        "revenge.api": { "version": "*" },
+        "discord": { "version": "*" }
+    },
+    "dist": {
+        "script": "index.js"
+    }
+}

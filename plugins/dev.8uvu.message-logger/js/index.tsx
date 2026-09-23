@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.1.4';
+const PLUGIN_VERSION = '1.1.5';
 
 interface Settings {
     enabled: boolean;
@@ -550,6 +550,25 @@ function toast(content: string, key: string) {
     } catch {}
 }
 
+function alertBox(title: string, msg: string) {
+    // RN Alert works on every host and needs no design components — the one
+    // UI primitive that cannot be defeated by a broken settings page.
+    try {
+        const Alert: any = getRN()?.Alert;
+        if (Alert?.alert) {
+            Alert.alert(title, msg);
+            return;
+        }
+    } catch {}
+    try {
+        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
+        const alertApi = v?.ui?.alerts?.showConfirmationAlert;
+        if (typeof alertApi === 'function') {
+            alertApi({ title, content: msg, confirmText: 'OK', cancelText: 'Close', onConfirm: () => {}, onCancel: () => {} });
+        }
+    } catch {}
+}
+
 function getChannelStore(): any {
     try {
         if (typeof revenge !== 'undefined') {
@@ -1038,6 +1057,7 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
     lastStartError = null;
     hostLog('started (Revenge Next)');
     toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
+    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Revenge (Next)\nFlux handlers: ' + handlersRegistered + '/4\nIf you can read this, the new build is running.');
 }
 
 async function startClassic() {
@@ -1097,6 +1117,7 @@ async function startClassic() {
     lastStartError = null;
     hostLog('started (Revenge Classic / vendetta host)');
     toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
+    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Classic / vendetta\nStorage: ' + (storageKind ?? 'none') + '\nFlux handlers: ' + handlersRegistered + '/4\nIf you can read this, the new build is running.');
 }
 
 // ---- Plugin definition ----------------------------------------------------
@@ -1105,9 +1126,22 @@ async function startClassic() {
 // revenge.* access — react/RN are resolved inside makeSettingsComponent).
 let _SettingsComponent: any = null;
 function SettingsComponent(props: any) {
-    if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
     if (hostKind !== 'next') refreshClassicConfig();
-    return _SettingsComponent(props);
+    try {
+        if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+        return _SettingsComponent(props);
+    } catch (e) {
+        // Never render blank silently: surface the crash as text.
+        try {
+            const RN: any = getRN();
+            const React: any = getReact();
+            if (React && RN?.Text) {
+                return React.createElement(RN.Text, { style: { padding: 12 } },
+                    'MessageLogger settings crashed: ' + (e instanceof Error ? e.message : String(e)));
+            }
+        } catch {}
+        return null;
+    }
 }
 
 // Assigned to globalThis.plugin so Revenge Classic's loader — which evaluates
