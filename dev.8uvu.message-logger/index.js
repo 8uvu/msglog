@@ -23,6 +23,10 @@ __export(index_exports, {
 });
 module.exports = __toCommonJS(index_exports);
 var hostKind = "next";
+var startedAt = null;
+var lastStartError = null;
+var handlersRegistered = 0;
+var PLUGIN_VERSION = "1.1.3";
 var LOG_FILE = "message-logger.json";
 var DEFAULT_SETTINGS = {
   enabled: true,
@@ -239,6 +243,7 @@ function hostLog(msg) {
 }
 function hostError(msg, e) {
   var _a, _b;
+  lastStartError = msg + (e ? " \u2014 " + (e instanceof Error ? e.message : String(e)) : "");
   try {
     (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.error) == null ? void 0 : _b.call(
       _a,
@@ -424,11 +429,45 @@ function snapshotOf(message, me) {
 }
 var seen = /* @__PURE__ */ new Map();
 function toast(content, key) {
-  var _a, _b;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   try {
     const actions = getActions();
     const open = (_b = (_a = actions == null ? void 0 : actions.ToastActionCreators) == null ? void 0 : _a.open) != null ? _b : actions == null ? void 0 : actions.open;
-    open == null ? void 0 : open({ key, content });
+    if (typeof open === "function") {
+      open({ key, content });
+      return;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const show = (_g = (_d = (_c = v == null ? void 0 : v.ui) == null ? void 0 : _c.toasts) == null ? void 0 : _d.showToast) != null ? _g : (_f = (_e = v == null ? void 0 : v.common) == null ? void 0 : _e.toasts) == null ? void 0 : _f.showToast;
+    if (typeof show === "function") {
+      try {
+        show({ key, content });
+        return;
+      } catch {
+      }
+      try {
+        show(content);
+        return;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const show = (_i = (_h = b == null ? void 0 : b.api) == null ? void 0 : _h.toasts) == null ? void 0 : _i.showToast;
+    if (typeof show === "function") {
+      show({ key, content });
+      return;
+    }
+  } catch {
+  }
+  try {
+    const ta = (_j = getRN()) == null ? void 0 : _j.ToastAndroid;
+    (_l = ta == null ? void 0 : ta.show) == null ? void 0 : _l.call(ta, content, (_k = ta == null ? void 0 : ta.SHORT) != null ? _k : 0);
   } catch {
   }
 }
@@ -708,6 +747,14 @@ function makeSettingsComponent() {
       null,
       el(
         RowGroup,
+        { title: "Status" },
+        el(DText, null, "Host: " + (hostKind === "next" ? "Revenge (Next API)" : "Classic / vendetta") + (storageKind ? " \xB7 storage: " + storageKind : "")),
+        el(DText, null, startedAt ? "Running since " + new Date(startedAt).toLocaleTimeString() : "Not started \u2014 toggle the plugin off and on"),
+        el(DText, null, "Flux handlers: " + handlersRegistered + "/4"),
+        lastStartError ? el(DText, null, "Last error: " + lastStartError) : null
+      ),
+      el(
+        RowGroup,
         { title: "MessageLogger" },
         sw("enabled", "Enabled"),
         sw("logDeletes", "Log deleted messages"),
@@ -832,6 +879,7 @@ function registerFluxHandlers(flux, addCleanup) {
         return payload;
       });
       if (typeof off === "function") addCleanup(off);
+      handlersRegistered++;
       hostLog("registered " + event);
     } catch (e) {
       hostError("could not register " + event, e);
@@ -866,6 +914,7 @@ async function startNext({ cleanup, jsonStorage, logger }) {
     toast("MessageLogger: flux unavailable", "msglogger-start-fail");
     return;
   }
+  handlersRegistered = 0;
   registerFluxHandlers(flux, cleanup);
   cleanup(() => {
     if (flushTimer) {
@@ -874,9 +923,14 @@ async function startNext({ cleanup, jsonStorage, logger }) {
     }
     void persistLog();
     seen.clear();
+    handlersRegistered = 0;
+    startedAt = null;
     apiRef = null;
   });
+  startedAt = Date.now();
+  lastStartError = null;
   hostLog("started (Revenge Next)");
+  toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
 }
 async function startClassic() {
   var _a, _b, _c, _d, _e, _f;
@@ -924,8 +978,12 @@ async function startClassic() {
     toast("MessageLogger: flux unavailable", "msglogger-start-fail");
     return;
   }
+  handlersRegistered = 0;
   registerFluxHandlers(flux, (off) => classicDisposers.push(off));
+  startedAt = Date.now();
+  lastStartError = null;
   hostLog("started (Revenge Classic / vendetta host)");
+  toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
 }
 var _SettingsComponent = null;
 function SettingsComponent(props) {
@@ -959,6 +1017,8 @@ var __instance = {
       } catch {
       }
     }
+    handlersRegistered = 0;
+    startedAt = null;
   },
   SettingsComponent
 };

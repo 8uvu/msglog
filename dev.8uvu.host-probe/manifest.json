@@ -1,0 +1,30 @@
+{
+    "format": 1,
+    "id": "dev.8uvu.host-probe",
+    "name": "Host Probe",
+    "description": "Diagnostic tool: reports which plugin loader and APIs your Revenge build actually exposes (globals, flux, storage, toasts, file module). Shows the result as a toast and in its settings page.",
+    "author": "8uvu",
+    "version": "1.0.0",
+    "license": "MIT",
+    "dependencies": {
+        "revenge.api": {
+            "version": "*"
+        },
+        "discord": {
+            "version": "*"
+        }
+    },
+    "dist": {
+        "script": "index.js"
+    },
+    "main": "index.js",
+    "hash": "4a11699e86b19162f2be566b089dbc5958611aadd7f27672508cdc10e8fbdd04",
+    "authors": [
+        {
+            "name": "8uvu"
+        }
+    ],
+    "vendetta": {
+        "icon": "ic_chat_bubble"
+    }
+}
