@@ -29,6 +29,13 @@ declare const plugin: any;
 // the `bunny` global. Set once start() runs.
 let hostKind: 'next' | 'classic' = 'next';
 
+// Start diagnostics: surfaced in the settings Status panel so a silent
+// loader failure is distinguishable from a broken flux/store hookup.
+let startedAt: number | null = null;
+let lastStartError: string | null = null;
+let handlersRegistered = 0;
+const PLUGIN_VERSION = '1.1.3';
+
 interface Settings {
     enabled: boolean;
     logDeletes: boolean;
@@ -276,6 +283,7 @@ function hostLog(msg: string) {
 }
 
 function hostError(msg: string, e?: unknown) {
+    lastStartError = msg + (e ? ' — ' + (e instanceof Error ? e.message : String(e)) : '');
     try {
         apiRef?.logger?.error?.(
             '[MessageLogger] ' + msg,
@@ -483,7 +491,37 @@ function toast(content: string, key: string) {
     try {
         const actions: any = getActions();
         const open = actions?.ToastActionCreators?.open ?? actions?.open;
-        open?.({ key, content });
+        if (typeof open === 'function') {
+            open({ key, content });
+            return;
+        }
+    } catch {}
+    try {
+        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
+        const show = v?.ui?.toasts?.showToast ?? v?.common?.toasts?.showToast;
+        if (typeof show === 'function') {
+            try {
+                show({ key, content });
+                return;
+            } catch {}
+            try {
+                show(content);
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        const b: any = typeof bunny !== 'undefined' ? bunny : null;
+        const show = b?.api?.toasts?.showToast;
+        if (typeof show === 'function') {
+            show({ key, content });
+            return;
+        }
+    } catch {}
+    try {
+        // Last resort: raw Android toast so start feedback is always visible.
+        const ta: any = getRN()?.ToastAndroid;
+        ta?.show?.(content, ta?.SHORT ?? 0);
     } catch {}
 }
 
@@ -783,6 +821,14 @@ function makeSettingsComponent() {
             null,
             el(
                 RowGroup,
+                { title: 'Status' },
+                el(DText, null, 'Host: ' + (hostKind === 'next' ? 'Revenge (Next API)' : 'Classic / vendetta') + (storageKind ? ' · storage: ' + storageKind : '')),
+                el(DText, null, startedAt ? 'Running since ' + new Date(startedAt).toLocaleTimeString() : 'Not started — toggle the plugin off and on'),
+                el(DText, null, 'Flux handlers: ' + handlersRegistered + '/4'),
+                lastStartError ? el(DText, null, 'Last error: ' + lastStartError) : null,
+            ),
+            el(
+                RowGroup,
                 { title: 'MessageLogger' },
                 sw('enabled', 'Enabled'),
                 sw('logDeletes', 'Log deleted messages'),
@@ -907,6 +953,7 @@ function registerFluxHandlers(flux: any, addCleanup: (off: () => void) => void) 
                 return payload;
             });
             if (typeof off === 'function') addCleanup(off);
+            handlersRegistered++;
             hostLog('registered ' + event);
         } catch (e) {
             hostError('could not register ' + event, e);
@@ -947,6 +994,7 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
         return;
     }
 
+    handlersRegistered = 0;
     registerFluxHandlers(flux, cleanup);
 
     cleanup(() => {
@@ -956,10 +1004,15 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
         }
         void persistLog();
         seen.clear();
+        handlersRegistered = 0;
+        startedAt = null;
         apiRef = null;
     });
 
+    startedAt = Date.now();
+    lastStartError = null;
     hostLog('started (Revenge Next)');
+    toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
 }
 
 async function startClassic() {
@@ -1012,9 +1065,13 @@ async function startClassic() {
         return;
     }
 
+    handlersRegistered = 0;
     registerFluxHandlers(flux, (off) => classicDisposers.push(off));
 
+    startedAt = Date.now();
+    lastStartError = null;
     hostLog('started (Revenge Classic / vendetta host)');
+    toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
 }
 
 // ---- Plugin definition ----------------------------------------------------
@@ -1060,6 +1117,8 @@ let __instance: any = {
                 classicDisposers.pop()?.();
             } catch {}
         }
+        handlersRegistered = 0;
+        startedAt = null;
     },
     SettingsComponent,
 };
