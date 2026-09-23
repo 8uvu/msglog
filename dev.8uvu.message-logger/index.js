@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.1.3";
+var PLUGIN_VERSION = "1.1.4";
 var LOG_FILE = "message-logger.json";
 var DEFAULT_SETTINGS = {
   enabled: true,
@@ -40,7 +40,7 @@ var DEFAULT_SETTINGS = {
   ignoredUsers: ""
 };
 function getReact() {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f, _g, _h;
   try {
     if (typeof revenge !== "undefined") {
       const r = revenge.react;
@@ -51,7 +51,7 @@ function getReact() {
   try {
     if (typeof bunny !== "undefined") {
       const b = bunny;
-      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.api) == null ? void 0 : _b.react) == null ? void 0 : _c.React);
+      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React) || ((_e = (_d = b.api) == null ? void 0 : _d.react) == null ? void 0 : _e.React);
       if (r) return r;
     }
   } catch {
@@ -59,7 +59,7 @@ function getReact() {
   try {
     if (typeof vendetta !== "undefined") {
       const v = vendetta;
-      const r = ((_d = v.common) == null ? void 0 : _d.React) || v.React;
+      const r = ((_f = v.common) == null ? void 0 : _f.React) || ((_h = (_g = v.metro) == null ? void 0 : _g.common) == null ? void 0 : _h.React) || v.React;
       if (r) return r;
     }
   } catch {
@@ -67,7 +67,7 @@ function getReact() {
   return null;
 }
 function getRN() {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   try {
     if (typeof revenge !== "undefined") {
       const rn = (_a = revenge.react) == null ? void 0 : _a.ReactNative;
@@ -78,14 +78,15 @@ function getRN() {
   try {
     if (typeof bunny !== "undefined") {
       const b = bunny;
-      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.api) == null ? void 0 : _c.react) == null ? void 0 : _d.ReactNative);
+      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.ReactNative) || ((_f = (_e = b.api) == null ? void 0 : _e.react) == null ? void 0 : _f.ReactNative);
       if (rn) return rn;
     }
   } catch {
   }
   try {
     if (typeof vendetta !== "undefined") {
-      const rn = (_e = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _e.ReactNative;
+      const v = vendetta;
+      const rn = ((_g = v.common) == null ? void 0 : _g.ReactNative) || ((_i = (_h = v.metro) == null ? void 0 : _h.common) == null ? void 0 : _i.ReactNative);
       if (rn) return rn;
     }
   } catch {
@@ -93,7 +94,7 @@ function getRN() {
   return null;
 }
 function getFlux() {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e, _f;
   try {
     if (typeof revenge !== "undefined") {
       const f = (_a = revenge.discord) == null ? void 0 : _a.flux;
@@ -117,7 +118,8 @@ function getFlux() {
   }
   try {
     if (typeof vendetta !== "undefined") {
-      const fd = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.FluxDispatcher;
+      const v = vendetta;
+      const fd = (_f = (_c = v == null ? void 0 : v.common) == null ? void 0 : _c.FluxDispatcher) != null ? _f : (_e = (_d = v == null ? void 0 : v.metro) == null ? void 0 : _d.common) == null ? void 0 : _e.FluxDispatcher;
       if (fd && typeof fd.addInterceptor === "function") {
         return {
           onFluxEventDispatched: (type, patch) => fd.addInterceptor((payload) => {
@@ -132,7 +134,7 @@ function getFlux() {
   return null;
 }
 function getActions() {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   try {
     if (typeof revenge !== "undefined") {
       const a = (_a = revenge.discord) == null ? void 0 : _a.actions;
@@ -143,14 +145,15 @@ function getActions() {
   try {
     if (typeof bunny !== "undefined") {
       const b = bunny;
-      const a = ((_b = b.common) == null ? void 0 : _b.ToastActionCreators) || ((_d = (_c = b.api) == null ? void 0 : _c.actions) == null ? void 0 : _d.ToastActionCreators);
+      const a = ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.toasts) || ((_e = (_d = b.api) == null ? void 0 : _d.actions) == null ? void 0 : _e.ToastActionCreators);
       if (a) return a;
     }
   } catch {
   }
   try {
     if (typeof vendetta !== "undefined") {
-      const show = (_f = (_e = vendetta == null ? void 0 : vendetta.ui) == null ? void 0 : _e.toasts) == null ? void 0 : _f.showToast;
+      const v = vendetta;
+      const show = (_k = (_g = (_f = v == null ? void 0 : v.ui) == null ? void 0 : _f.toasts) == null ? void 0 : _g.showToast) != null ? _k : (_j = (_i = (_h = v == null ? void 0 : v.metro) == null ? void 0 : _h.common) == null ? void 0 : _i.toasts) == null ? void 0 : _j.open;
       if (typeof show === "function") {
         return { ToastActionCreators: { open: (t) => {
           var _a2;
@@ -196,9 +199,27 @@ function getDesign() {
   return null;
 }
 function getClipboard() {
-  var _a, _b;
+  var _a, _b, _c, _d, _e, _f, _g, _h;
   try {
-    return ((_b = (_a = revenge == null ? void 0 : revenge.externals) == null ? void 0 : _a.ReactNativeClipboard) == null ? void 0 : _b.Clipboard) || null;
+    if (typeof revenge !== "undefined") {
+      const c = (_b = (_a = revenge == null ? void 0 : revenge.externals) == null ? void 0 : _a.ReactNativeClipboard) == null ? void 0 : _b.Clipboard;
+      if (c) return c;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const c = (_d = (_c = bunny == null ? void 0 : bunny.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.clipboard;
+      if (c) return c;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const c = (_h = (_f = (_e = v == null ? void 0 : v.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.clipboard) != null ? _h : (_g = v == null ? void 0 : v.common) == null ? void 0 : _g.clipboard;
+      if (c) return c;
+    }
   } catch {
   }
   return null;
@@ -429,7 +450,7 @@ function snapshotOf(message, me) {
 }
 var seen = /* @__PURE__ */ new Map();
 function toast(content, key) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
   try {
     const actions = getActions();
     const open = (_b = (_a = actions == null ? void 0 : actions.ToastActionCreators) == null ? void 0 : _a.open) != null ? _b : actions == null ? void 0 : actions.open;
@@ -441,7 +462,7 @@ function toast(content, key) {
   }
   try {
     const v = typeof vendetta !== "undefined" ? vendetta : null;
-    const show = (_g = (_d = (_c = v == null ? void 0 : v.ui) == null ? void 0 : _c.toasts) == null ? void 0 : _d.showToast) != null ? _g : (_f = (_e = v == null ? void 0 : v.common) == null ? void 0 : _e.toasts) == null ? void 0 : _f.showToast;
+    const show = (_k = (_h = (_d = (_c = v == null ? void 0 : v.ui) == null ? void 0 : _c.toasts) == null ? void 0 : _d.showToast) != null ? _h : (_g = (_f = (_e = v == null ? void 0 : v.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.toasts) == null ? void 0 : _g.open) != null ? _k : (_j = (_i = v == null ? void 0 : v.common) == null ? void 0 : _i.toasts) == null ? void 0 : _j.showToast;
     if (typeof show === "function") {
       try {
         show({ key, content });
@@ -458,16 +479,16 @@ function toast(content, key) {
   }
   try {
     const b = typeof bunny !== "undefined" ? bunny : null;
-    const show = (_i = (_h = b == null ? void 0 : b.api) == null ? void 0 : _h.toasts) == null ? void 0 : _i.showToast;
+    const show = (_m = (_l = b == null ? void 0 : b.ui) == null ? void 0 : _l.toasts) == null ? void 0 : _m.showToast;
     if (typeof show === "function") {
-      show({ key, content });
+      show(content);
       return;
     }
   } catch {
   }
   try {
-    const ta = (_j = getRN()) == null ? void 0 : _j.ToastAndroid;
-    (_l = ta == null ? void 0 : ta.show) == null ? void 0 : _l.call(ta, content, (_k = ta == null ? void 0 : ta.SHORT) != null ? _k : 0);
+    const ta = (_n = getRN()) == null ? void 0 : _n.ToastAndroid;
+    (_p = ta == null ? void 0 : ta.show) == null ? void 0 : _p.call(ta, content, (_o = ta == null ? void 0 : ta.SHORT) != null ? _o : 0);
   } catch {
   }
 }

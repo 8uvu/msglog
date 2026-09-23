@@ -81,7 +81,7 @@ var TRACKING_PARAMS = /* @__PURE__ */ new Set([
 ]);
 var TRACKING_PREFIXES = ["utm_", "fb_", "ga_", "mc_", "matomo_", "pk_", "mtm_"];
 function getFlux() {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e, _f;
   try {
     if (typeof revenge !== "undefined") {
       const f = (_a = revenge.discord) == null ? void 0 : _a.flux;
@@ -105,7 +105,7 @@ function getFlux() {
   }
   try {
     if (typeof vendetta !== "undefined") {
-      const fd = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.FluxDispatcher;
+      const fd = (_f = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.FluxDispatcher) != null ? _f : (_e = (_d = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _d.common) == null ? void 0 : _e.FluxDispatcher;
       if (fd && typeof fd.addInterceptor === "function") {
         return {
           onFluxEventDispatched: (type, patch) => fd.addInterceptor((payload) => {
@@ -305,7 +305,7 @@ function makeSettingsComponent() {
   };
 }
 function getReact() {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   try {
     if (typeof revenge !== "undefined") {
       const r = revenge.react;
@@ -316,20 +316,20 @@ function getReact() {
   try {
     if (typeof bunny !== "undefined") {
       const b = bunny;
-      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.api) == null ? void 0 : _b.react) == null ? void 0 : _c.React);
+      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React) || ((_e = (_d = b.api) == null ? void 0 : _d.react) == null ? void 0 : _e.React);
       if (r) return r;
     }
   } catch {
   }
   try {
-    const r = (_d = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _d.React;
+    const r = (_i = (_f = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _f.React) != null ? _i : (_h = (_g = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _g.common) == null ? void 0 : _h.React;
     if (r) return r;
   } catch {
   }
   return null;
 }
 function getRN() {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e, _f, _g, _h;
   try {
     if (typeof revenge !== "undefined") {
       const rn = (_a = revenge.react) == null ? void 0 : _a.ReactNative;
@@ -340,13 +340,13 @@ function getRN() {
   try {
     if (typeof bunny !== "undefined") {
       const b = bunny;
-      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative);
+      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.ReactNative);
       if (rn) return rn;
     }
   } catch {
   }
   try {
-    const rn = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.ReactNative;
+    const rn = (_h = (_e = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _e.ReactNative) != null ? _h : (_g = (_f = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _f.common) == null ? void 0 : _g.ReactNative;
     if (rn) return rn;
   } catch {
   }

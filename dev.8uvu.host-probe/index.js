@@ -66,7 +66,7 @@ function probeRevenge() {
   }
 }
 function probeBunny() {
-  var _a, _b, _c, _d, _e, _f, _g, _h;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   try {
     if (typeof bunny === "undefined") return;
     const b = bunny;
@@ -74,24 +74,26 @@ function probeBunny() {
     push("bunny.plugin.createStorage", typeof ((_c = b == null ? void 0 : b.plugin) == null ? void 0 : _c.createStorage));
     push("bunny.plugin.logger", !!((_d = b == null ? void 0 : b.plugin) == null ? void 0 : _d.logger));
     push("bunny.metro", !!(b == null ? void 0 : b.metro));
-    push("bunny.common.FluxDispatcher", !!((_e = b == null ? void 0 : b.common) == null ? void 0 : _e.FluxDispatcher));
-    push("bunny.native.FileModule", !!(((_g = (_f = b == null ? void 0 : b.api) == null ? void 0 : _f.native) == null ? void 0 : _g.FileModule) || ((_h = b == null ? void 0 : b.native) == null ? void 0 : _h.FileModule)));
+    push("bunny.metro.common.React", !!((_f = (_e = b == null ? void 0 : b.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.React));
+    push("bunny.metro.common.FluxDispatcher", !!((_h = (_g = b == null ? void 0 : b.metro) == null ? void 0 : _g.common) == null ? void 0 : _h.FluxDispatcher));
+    push("bunny.native.FileModule", !!(((_j = (_i = b == null ? void 0 : b.api) == null ? void 0 : _i.native) == null ? void 0 : _j.FileModule) || ((_k = b == null ? void 0 : b.native) == null ? void 0 : _k.FileModule)));
   } catch (e) {
     push("bunny probe error", e instanceof Error ? e.message : String(e));
   }
 }
 function probeVendetta() {
-  var _a, _b, _c, _d, _e, _f, _i, _j, _k;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _o, _p, _q;
   try {
     if (typeof vendetta === "undefined") return;
     const v = vendetta;
     push("vendetta.plugin.storage", !!((_a = v == null ? void 0 : v.plugin) == null ? void 0 : _a.storage));
-    push("vendetta.common.FluxDispatcher", !!((_b = v == null ? void 0 : v.common) == null ? void 0 : _b.FluxDispatcher));
-    push("dispatcher.addInterceptor", typeof ((_d = (_c = v == null ? void 0 : v.common) == null ? void 0 : _c.FluxDispatcher) == null ? void 0 : _d.addInterceptor));
-    push("vendetta.ui.toasts.showToast", typeof ((_f = (_e = v == null ? void 0 : v.ui) == null ? void 0 : _e.toasts) == null ? void 0 : _f.showToast));
-    push("vendetta.metro.findByStoreName", typeof ((_i = v == null ? void 0 : v.metro) == null ? void 0 : _i.findByStoreName));
+    push("vendetta.metro.common.React", !!((_c = (_b = v == null ? void 0 : v.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React));
+    push("vendetta.metro.common.FluxDispatcher", !!((_e = (_d = v == null ? void 0 : v.metro) == null ? void 0 : _d.common) == null ? void 0 : _e.FluxDispatcher));
+    push("dispatcher.addInterceptor", typeof ((_j = (_i = (_g = (_f = v == null ? void 0 : v.metro) == null ? void 0 : _f.common) == null ? void 0 : _g.FluxDispatcher) != null ? _i : (_h = v == null ? void 0 : v.common) == null ? void 0 : _h.FluxDispatcher) == null ? void 0 : _j.addInterceptor));
+    push("vendetta.ui.toasts.showToast", typeof ((_l = (_k = v == null ? void 0 : v.ui) == null ? void 0 : _k.toasts) == null ? void 0 : _l.showToast));
+    push("vendetta.metro.findByStoreName", typeof ((_o = v == null ? void 0 : v.metro) == null ? void 0 : _o.findByStoreName));
     try {
-      const us = (_k = (_j = v == null ? void 0 : v.metro) == null ? void 0 : _j.findByStoreName) == null ? void 0 : _k.call(_j, "UserStore");
+      const us = (_q = (_p = v == null ? void 0 : v.metro) == null ? void 0 : _p.findByStoreName) == null ? void 0 : _q.call(_p, "UserStore");
       push("metro UserStore", !!us);
     } catch {
       push("metro UserStore", "finder threw");
@@ -120,7 +122,7 @@ function summary() {
 }
 var _React = null;
 function react() {
-  var _a, _b;
+  var _a, _b, _c, _d, _e, _f, _g;
   if (_React) return _React;
   try {
     if (typeof revenge !== "undefined") {
@@ -132,19 +134,19 @@ function react() {
   try {
     if (!_React && typeof bunny !== "undefined") {
       const b = bunny;
-      _React = b.React || ((_a = b.common) == null ? void 0 : _a.React);
+      _React = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React);
     }
   } catch {
   }
   try {
-    if (!_React && typeof vendetta !== "undefined") _React = (_b = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _b.React;
+    if (!_React && typeof vendetta !== "undefined") _React = (_g = (_d = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _d.React) != null ? _g : (_f = (_e = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.React;
   } catch {
   }
   return _React;
 }
 var _RN = null;
 function reactNative() {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e, _f, _g, _h;
   if (_RN) return _RN;
   try {
     if (typeof revenge !== "undefined") _RN = (_a = revenge == null ? void 0 : revenge.react) == null ? void 0 : _a.ReactNative;
@@ -153,12 +155,12 @@ function reactNative() {
   try {
     if (!_RN && typeof bunny !== "undefined") {
       const b = bunny;
-      _RN = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative);
+      _RN = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.ReactNative);
     }
   } catch {
   }
   try {
-    if (!_RN && typeof vendetta !== "undefined") _RN = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.ReactNative;
+    if (!_RN && typeof vendetta !== "undefined") _RN = (_h = (_e = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _e.ReactNative) != null ? _h : (_g = (_f = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _f.common) == null ? void 0 : _g.ReactNative;
   } catch {
   }
   return _RN;
