@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.4.3";
+var PLUGIN_VERSION = "1.5.0";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -386,6 +386,7 @@ async function loadLog() {
       }
       if ((data == null ? void 0 : data.log) && typeof data.log === "object") log = data.log;
       hostLog("loaded " + Object.keys(log).length + " entries (plugin storage)");
+      restoreHighlightsFromLog();
     } catch (e) {
       hostError("failed to read plugin storage", e);
     }
@@ -406,6 +407,7 @@ async function loadLog() {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") log = parsed;
     hostLog("loaded " + Object.keys(log).length + " entries");
+    restoreHighlightsFromLog();
   } catch {
     log = {};
     hostLog("starting with an empty log");
@@ -867,6 +869,7 @@ async function saveOneImage(messageId, url) {
   const dataUrl = await readBlob(blob);
   const comma = dataUrl.indexOf(",");
   if (comma < 0) return;
+  const mime = dataUrl.slice(5, dataUrl.indexOf(";")) || "image/png";
   const b64 = dataUrl.slice(comma + 1);
   const bytes = Math.floor(b64.length * 3 / 4);
   if (bytes > cfg.attachmentSizeLimitMB * 1024 * 1024) return;
@@ -877,7 +880,7 @@ async function saveOneImage(messageId, url) {
   await fs.writeImage(name, b64);
   imageIndex[messageId] = [
     ...(_c = imageIndex[messageId]) != null ? _c : [],
-    { file: name, bytes, time: stamp }
+    { file: name, bytes, time: stamp, mime }
   ];
   imageIndexDirty = true;
   await saveImageIndex(fs);
@@ -889,6 +892,17 @@ async function saveOneImage(messageId, url) {
 }
 function allowedExtensions() {
   return cfg.attachmentExtensions.split(/[\s,]+/).map((s) => s.trim().toLowerCase().replace(/^\./, "")).filter(Boolean);
+}
+function readSavedImageB64(file) {
+  var _a;
+  try {
+    const fm = getFileModule();
+    if (fm && typeof fm.readFileSync === "function") {
+      return String((_a = fm.readFileSync(docRoot + "/" + IMG_DIR_NAME + "/" + file, "base64")) != null ? _a : "");
+    }
+  } catch {
+  }
+  return "";
 }
 function isCacheableImageUrl(url) {
   if (/(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) === false) return false;
@@ -1039,6 +1053,28 @@ function handleUpdate(payload) {
   };
   prune(cfg.maxStored);
   void persistLog();
+}
+function restoreHighlightsFromLog() {
+  var _a, _b;
+  try {
+    let restored = 0;
+    for (const id of Object.keys(log)) {
+      const entry = log[id];
+      if (!(entry == null ? void 0 : entry.channelId)) continue;
+      if (entry.status === "deleted") {
+        if (!deletedMessageMap.has(id)) {
+          deletedMessageMap.set(id, { channelId: entry.channelId, timestamp: (_a = entry.timestamp) != null ? _a : Date.now() });
+          restored++;
+        }
+      } else if (entry.status === "edited" && !editedMessageMap.has(id)) {
+        editedMessageMap.set(id, { channelId: entry.channelId, timestamp: (_b = entry.timestamp) != null ? _b : Date.now() });
+        restored++;
+      }
+    }
+    if (restored > 0) hostLog("restored " + restored + " highlight(s) from saved log");
+  } catch (e) {
+    hostError("highlight restore failed", e);
+  }
 }
 function rememberForHighlight(payload) {
   var _a, _b, _c, _d, _e;
@@ -1386,7 +1422,7 @@ function makeSettingsComponent() {
   if (!React) return () => null;
   const el = React.createElement.bind(React);
   const RN = getRN() || {};
-  const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null } = RN;
+  const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null, Image = null } = RN;
   function SwitchRow(props) {
     const c = viewerColors();
     const toggle = Switch ? el(Switch, {
@@ -1432,7 +1468,7 @@ function makeSettingsComponent() {
     return el(T || Text, { ...props, style }, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
   };
   return function SettingsComponent2(props) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
     const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
     const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
     const C = viewerColors();
@@ -1440,6 +1476,7 @@ function makeSettingsComponent() {
     const [filter, setFilter] = React.useState("all");
     const [query, setQuery] = React.useState("");
     const [refreshTick, setRefreshTick] = React.useState(0);
+    const [selectedUser, setSelectedUser] = React.useState(null);
     React.useEffect(() => {
       settingsChangedCb = () => setRefreshTick((t) => t + 1);
       return () => {
@@ -1519,6 +1556,18 @@ function makeSettingsComponent() {
         toast("Could not clear saved images", "msglogger-img-clear-fail");
       }
     };
+    const byUser = {};
+    for (const m of entries) {
+      const key = m.authorId || m.authorTag || "unknown";
+      const u = (_e = byUser[key]) != null ? _e : byUser[key] = { name: m.authorTag || "Unknown", deleted: 0, edited: 0, ghosts: 0, total: 0 };
+      if (m.status === "deleted") u.deleted++;
+      else if (m.status === "edited") u.edited++;
+      if (m.ghostPing) u.ghosts++;
+      u.total++;
+    }
+    const userStats = Object.entries(byUser).map(([id, s]) => ({ id, ...s })).sort((a, b) => b.total - a.total).slice(0, 15);
+    const userEntries = selectedUser ? entries.filter((m) => (m.authorId || m.authorTag || "unknown") === selectedUser) : [];
+    const selectedName = selectedUser ? (_g = (_f = byUser[selectedUser]) == null ? void 0 : _f.name) != null ? _g : "" : "";
     const tab = (key, label) => el(
       Pressable,
       {
@@ -1566,7 +1615,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "100",
           placeholderTextColor: C.sub,
-          defaultValue: String((_e = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _e : 100),
+          defaultValue: String((_h = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _h : 100),
           onChangeText: (t) => {
             var _a2, _b2;
             const n = parseFloat(t);
@@ -1578,7 +1627,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "png,jpg,jpeg,gif,webp",
           placeholderTextColor: C.sub,
-          defaultValue: (_f = settings == null ? void 0 : settings.attachmentExtensions) != null ? _f : "png,jpg,jpeg,gif,webp",
+          defaultValue: (_i = settings == null ? void 0 : settings.attachmentExtensions) != null ? _i : "png,jpg,jpeg,gif,webp",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentExtensions: t });
@@ -1589,7 +1638,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "2",
           placeholderTextColor: C.sub,
-          defaultValue: String((_g = settings == null ? void 0 : settings.imageQuotaGB) != null ? _g : 2),
+          defaultValue: String((_j = settings == null ? void 0 : settings.imageQuotaGB) != null ? _j : 2),
           onChangeText: (t) => {
             var _a2, _b2;
             const n = parseFloat(t);
@@ -1611,7 +1660,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "e.g. 123456789012345678",
           placeholderTextColor: C.sub,
-          defaultValue: (_h = settings == null ? void 0 : settings.whitelistedIds) != null ? _h : "",
+          defaultValue: (_k = settings == null ? void 0 : settings.whitelistedIds) != null ? _k : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { whitelistedIds: t });
@@ -1622,7 +1671,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "Server IDs",
           placeholderTextColor: C.sub,
-          defaultValue: (_i = settings == null ? void 0 : settings.ignoredGuilds) != null ? _i : "",
+          defaultValue: (_l = settings == null ? void 0 : settings.ignoredGuilds) != null ? _l : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredGuilds: t });
@@ -1633,7 +1682,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "0",
           placeholderTextColor: C.sub,
-          defaultValue: String((_j = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _j : 0),
+          defaultValue: String((_m = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _m : 0),
           onChangeText: (t) => {
             var _a2, _b2;
             const n = parseInt(t, 10);
@@ -1649,7 +1698,7 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "Channel IDs",
           placeholderTextColor: C.sub,
-          defaultValue: (_k = settings == null ? void 0 : settings.ignoredChannels) != null ? _k : "",
+          defaultValue: (_n = settings == null ? void 0 : settings.ignoredChannels) != null ? _n : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
@@ -1660,13 +1709,51 @@ function makeSettingsComponent() {
         el(TextInput, {
           placeholder: "User IDs",
           placeholderTextColor: C.sub,
-          defaultValue: (_l = settings == null ? void 0 : settings.ignoredUsers) != null ? _l : "",
+          defaultValue: (_o = settings == null ? void 0 : settings.ignoredUsers) != null ? _o : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         })
+      ),
+      selectedUser ? el(
+        RowGroup,
+        { title: selectedName + " \u2014 " + userEntries.length + " entries (tap to go back)" },
+        el(
+          Pressable,
+          { onPress: () => setSelectedUser(null), style: { padding: 10 } },
+          el(Text, { style: { color: C.sub } }, "\u2190 Back to all users")
+        ),
+        ...userEntries.slice(0, 30).map(
+          (m) => el(
+            View,
+            { key: m.id, style: { paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.bg } },
+            el(Text, { style: { color: m.status === "deleted" ? C.deleted : C.edited, fontWeight: "bold", fontSize: 12 } }, (m.status === "deleted" ? "DELETED" : "EDITED") + (m.ghostPing ? " \xB7 GHOST PING" : "") + " \u2014 " + new Date(m.timestamp).toLocaleString()),
+            el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
+            m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Before: " + m.edits.join("  |  "))
+          )
+        )
+      ) : el(
+        RowGroup,
+        { title: "Users (" + userStats.length + ")" },
+        userStats.length === 0 ? el(DText, null, "No logged users yet.") : userStats.map(
+          (u) => el(
+            Pressable,
+            {
+              key: u.id,
+              onPress: () => setSelectedUser(u.id),
+              style: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.bg }
+            },
+            el(
+              View,
+              { style: { flex: 1 } },
+              el(Text, { style: { color: C.text, fontSize: 15 } }, u.name),
+              el(Text, { style: { color: C.sub, fontSize: 12 } }, u.deleted + " deleted \xB7 " + u.edited + " edited" + (u.ghosts > 0 ? " \xB7 " + u.ghosts + " ghost pings" : ""))
+            ),
+            el(Text, { style: { color: u.deleted > 0 ? C.deleted : C.sub, fontWeight: "bold" } }, String(u.total))
+          )
+        )
       ),
       el(
         RowGroup,
@@ -1680,6 +1767,7 @@ function makeSettingsComponent() {
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 200).map((m) => {
+          var _a2;
           const isDel = m.ghostPing || m.status === "deleted";
           const statusColor = isDel ? C.deleted : C.edited;
           return el(
@@ -1703,6 +1791,23 @@ function makeSettingsComponent() {
             el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
             m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " attachment(s) saved as links"),
             m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + " image(s) saved to device") : null,
+            ...m.savedImages && Image ? [
+              el(
+                View,
+                { key: m.id + ":imgs", style: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 } },
+                ((_a2 = imageIndex[m.id]) != null ? _a2 : []).slice(0, 4).map(
+                  (img, i) => {
+                    var _a3;
+                    return el(Image, {
+                      key: i,
+                      source: { uri: "data:" + ((_a3 = img.mime) != null ? _a3 : "image/png") + ";base64," + readSavedImageB64(img.file) },
+                      style: { width: 72, height: 72, borderRadius: 6, marginRight: 6, marginBottom: 6, backgroundColor: C.bg },
+                      resizeMode: "cover"
+                    });
+                  }
+                )
+              )
+            ] : [],
             m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
             el(
               Pressable,
