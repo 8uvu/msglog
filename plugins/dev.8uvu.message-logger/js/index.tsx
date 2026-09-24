@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.5.0';
+const PLUGIN_VERSION = '1.5.1';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1656,6 +1656,9 @@ function makeSettingsComponent() {
 
     function RowGroup(props: any) {
         const c = viewerColors();
+        // Hermes: spreading a single (non-array) child throws "iterator method
+        // is not callable" — normalize children to an array first.
+        const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
         return el(
             View,
             { style: { marginTop: 16 } },
@@ -1663,7 +1666,7 @@ function makeSettingsComponent() {
             el(
                 View,
                 { style: { backgroundColor: c.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } },
-                ...props.children,
+                ...kids,
             ),
         );
     }
