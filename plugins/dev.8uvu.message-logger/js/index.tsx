@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.4.1';
+const PLUGIN_VERSION = '1.4.2';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1742,11 +1742,8 @@ function makeSettingsComponent() {
             });
 
         return el(
-            View,
-            null,
-            el(
-                ScrollView,
-                { style: { flex: 1 } },
+            ScrollView,
+            { style: { flexGrow: 1 } },
             el(
                 RowGroup,
                 { title: 'Status' },
@@ -1897,7 +1894,6 @@ function makeSettingsComponent() {
                               ),
                           );
                       }),
-            ),
             ),
             el(
                 View,
