@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.5.1';
+const PLUGIN_VERSION = '1.6.0';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -48,6 +48,9 @@ interface Settings {
     enabled: boolean;
     logDeletes: boolean;
     logEdits: boolean;
+    restoreDeletedInChat: boolean;
+    keepSelfDeletes: boolean;
+    deletedInfo: boolean;
     inlineEdits: boolean;
     ghostPings: boolean;
     colorHighlights: boolean;
@@ -89,6 +92,9 @@ const DEFAULT_SETTINGS: Settings = {
     enabled: true,
     logDeletes: true,
     logEdits: true,
+    restoreDeletedInChat: true,
+    keepSelfDeletes: true,
+    deletedInfo: true,
     inlineEdits: true,
     ghostPings: true,
     colorHighlights: true,
@@ -365,6 +371,9 @@ function coerceSettings(raw: any): Settings {
         enabled: c.enabled !== false,
         logDeletes: c.logDeletes !== false,
         logEdits: c.logEdits !== false,
+        restoreDeletedInChat: c.restoreDeletedInChat !== false,
+        keepSelfDeletes: c.keepSelfDeletes !== false,
+        deletedInfo: c.deletedInfo !== false,
         ghostPings: c.ghostPings !== false,
         colorHighlights: c.colorHighlights !== false,
         inlineEdits: c.inlineEdits !== false,
@@ -1218,6 +1227,8 @@ function handleUpdate(payload: any) {
 // cache across restarts, but our highlight maps start empty — so restored
 // rows lose their red. Rebuild the maps from the persisted log on startup.
 function restoreHighlightsFromLog() {
+    // Rows that no longer exist after a restart are re-created on channel
+    // open by the CHANNEL_SELECT re-injection; nothing to do here for them.
     try {
         let restored = 0;
         for (const id of Object.keys(log)) {
@@ -1336,8 +1347,11 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
                     const channelId = String(payload?.channelId ?? payload?.channel_id ?? payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
                     if (!id || !channelId) return;
                     if (isSelfDelete(id)) {
-                        // Your own deletes are logged and kept visible in chat
-                        // too (Vencord logs all deletes). Fall through.
+                        // Own deletes: vanish normally unless keepSelfDeletes
+                        // is on. Even when vanishing, the delete is still
+                        // logged (via the per-event handler).
+                        if (!cfg.keepSelfDeletes) return undefined;
+                        // keepSelfDeletes=true: fall through to keep + paint.
                     }
                     if (inList(channelId, cfg.ignoredChannels)) return;
                     const record = cachedRecordFor(id);
@@ -1421,6 +1435,12 @@ function paintRow(row: any, processColor: (c: any) => any) {
     if (!isDel && !isEd) return;
     if (isDel) {
         msg.edited = '(deleted)';
+        if (cfg.deletedInfo) {
+            const entry = log[id];
+            const who = entry?.authorTag ? ' by ' + entry.authorTag : '';
+            const when = entry?.timestamp ? ' at ' + new Date(entry.timestamp).toLocaleString() : '';
+            msg.content = String(msg.content ?? '') + '\n[deleted' + who + when + ']';
+        }
         const red = processColor('#f04747');
         msg.textColor = red;
         row.backgroundHighlight = {
@@ -1827,7 +1847,7 @@ function makeSettingsComponent() {
                 { title: 'Status' },
                 el(DText, null, 'Host: ' + (hostKind === 'next' ? 'Revenge (Next API)' : 'Classic / vendetta') + (storageKind ? ' · storage: ' + storageKind : '')),
                 el(DText, null, startedAt ? 'Running since ' + new Date(startedAt).toLocaleTimeString() : 'Not started — toggle the plugin off and on'),
-                el(DText, null, 'Flux handlers: ' + handlersRegistered + '/4 · row painters: ' + rowPaintersInstalled),
+                el(DText, null, 'Flux handlers: ' + handlersRegistered + '/5 · row painters: ' + rowPaintersInstalled),
                 lastStartError ? el(DText, null, 'Last error: ' + lastStartError) : null,
             ),
             el(
@@ -1835,6 +1855,9 @@ function makeSettingsComponent() {
                 { title: 'MessageLogger' },
                 sw('enabled', 'Enabled'),
                 sw('logDeletes', 'Log deleted messages'),
+                sw('restoreDeletedInChat', 'Restore deleted in chat', 'Re-inject logged deleted messages when you open their channel'),
+                sw('keepSelfDeletes', 'Keep my own deletes visible', 'Off: your own deleted messages vanish like normal'),
+                sw('deletedInfo', 'Show deleted info', 'Red rows show "[deleted by X at …]"'),
                 sw('logEdits', 'Log edited messages'),
                 sw('ghostPings', 'Ghost ping toasts', 'Toast when a message mentioning you is deleted'),
                 sw('colorHighlights', 'Red highlight in chat', 'Deleted messages stay visible with red text (Vencord style)'),
@@ -2113,6 +2136,107 @@ function registerFluxHandlers(flux: any, addCleanup: (off: () => void) => void) 
     register('MESSAGE_DELETE', handleDelete);
     register('MESSAGE_DELETE_BULK', handleDeleteBulk);
     register('MESSAGE_UPDATE', handleUpdate);
+    register('CHANNEL_SELECT', handleChannelSelect);
+}
+
+// ---- Channel-open re-injection ---------------------------------------------
+// After a restart Discord re-fetches channels from the API, so deleted rows
+// are gone — the log remembers them but the chat has nothing to paint.
+// Re-dispatching a MESSAGE_CREATE makes Discord's own MessageStore build the
+// row again (kept visible + red via the rewrite/painter machinery).
+let lastInjectedChannel = '';
+let lastInjectedAt = 0;
+
+function handleChannelSelect(payload: any) {
+    if (!cfg.enabled || !cfg.restoreDeletedInChat) return;
+    const channelId = String(payload?.channelId ?? '');
+    if (!channelId) return;
+    const now = Date.now();
+    if (channelId === lastInjectedChannel && now - lastInjectedAt < 1500) return;
+    lastInjectedChannel = channelId;
+    lastInjectedAt = now;
+    setTimeout(() => void reinjectChannel(channelId), 350);
+}
+
+async function reinjectChannel(channelId: string) {
+    try {
+        // Next's flux adapter exposes only addInterceptor — find a real
+        // dispatch through the raw dispatcher module (metro works on every
+        // host; Discord's FluxDispatcher always has dispatch + subscribe).
+        let dispatch: ((ev: any) => void) | null = null;
+        const raw: any = getRawFluxDispatcher();
+        if (typeof raw?.dispatch === 'function') dispatch = raw.dispatch.bind(raw);
+        if (!dispatch) {
+            try {
+                const metro = getMetro();
+                const rd = metro?.findByProps?.('dispatch', 'subscribe');
+                if (typeof rd?.dispatch === 'function') dispatch = rd.dispatch.bind(rd);
+            } catch {}
+        }
+        if (!dispatch) {
+            hostError('no raw dispatcher available for re-injection');
+            return;
+        }
+        const entries = Object.values(log).filter(
+            (m) => m.status === 'deleted' && m.channelId === channelId,
+        ) as LoggedMessage[];
+        if (!entries.length) return;
+        const alreadyIn = getMessageIdsInChannel(channelId);
+        let injected = 0;
+        for (const entry of entries) {
+            if (alreadyIn.has(entry.id)) continue;
+            dispatch({
+                type: 'MESSAGE_CREATE',
+                message: {
+                    id: entry.id,
+                    channel_id: channelId,
+                    content: entry.content,
+                    timestamp: new Date(entry.timestamp).toISOString(),
+                    author: { id: entry.authorId, username: entry.authorTag, bot: !!entry.bot },
+                    attachments: (entry.attachments ?? []).map((u) => ({ url: u, proxy_url: u })),
+                    mentions: [],
+                    mention_everyone: false,
+                    mention_roles: [],
+                    pinned: false,
+                    tts: false,
+                    type: 0,
+                },
+                optimisticallyPerformed: true,
+                mlReinjected: true,
+            });
+            markHighlightDeleted(entry.id, channelId);
+            injected++;
+        }
+        if (injected > 0) hostLog('re-injected ' + injected + ' deleted message(s) into channel ' + channelId);
+    } catch (e) {
+        hostError('channel re-injection failed', e);
+    }
+}
+
+// Which logged messages Discord still holds for a channel — used to skip
+// rows that are already on screen (their paint is handled elsewhere).
+function getMessageIdsInChannel(channelId: string): Set<string> {
+    const ids = new Set<string>();
+    try {
+        const store = getMessageStore();
+        const messages = store?.getMessages?.(channelId);
+        const arr = typeof messages?.array === 'function' ? messages.array() : messages?._array ?? [];
+        for (const m of arr) if (m?.id) ids.add(String(m.id));
+    } catch {}
+    return ids;
+}
+
+function getMessageStore(): any {
+    try {
+        const s: any = (typeof revenge !== 'undefined' && (revenge as any)?.discord?.flux?.Stores?.MessageStore) || null;
+        if (s) return s;
+    } catch {}
+    try {
+        const metro = getMetro();
+        const s = metro?.findByStoreName?.('MessageStore') ?? metro?.findByProps?.('getMessage', 'getMessages');
+        if (s) return s;
+    } catch {}
+    return null;
 }
 
 async function startNext({ cleanup, jsonStorage, logger }: any) {
