@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.6.0';
+const PLUGIN_VERSION = '1.6.1';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1434,13 +1434,13 @@ function paintRow(row: any, processColor: (c: any) => any) {
     const isEd = editedMessageMap.has(id);
     if (!isDel && !isEd) return;
     if (isDel) {
-        msg.edited = '(deleted)';
-        if (cfg.deletedInfo) {
-            const entry = log[id];
-            const who = entry?.authorTag ? ' by ' + entry.authorTag : '';
-            const when = entry?.timestamp ? ' at ' + new Date(entry.timestamp).toLocaleString() : '';
-            msg.content = String(msg.content ?? '') + '\n[deleted' + who + when + ']';
-        }
+        // Deleted info lives in Discord's own small ((...)) marker — never
+        // appended to content, so non-string content (bot/interaction rows)
+        // can't turn into '[object Object]'.
+        const entry = log[id];
+        const who = cfg.deletedInfo && entry?.authorTag ? ' by ' + entry.authorTag : '';
+        const when = cfg.deletedInfo && entry?.timestamp ? ' at ' + new Date(entry.timestamp).toLocaleString() : '';
+        msg.edited = '(deleted' + who + when + ')';
         const red = processColor('#f04747');
         msg.textColor = red;
         row.backgroundHighlight = {
@@ -1453,16 +1453,17 @@ function paintRow(row: any, processColor: (c: any) => any) {
             gutterColor: processColor('#faa61a'),
         };
     }
-    // Equicord "Inline Edits": show previous versions as part of the message.
-    // Paint EXACTLY ONCE per row object: updateRows fires repeatedly for the
-    // same rows, and re-appending would stack '(edited)' lines. Content must
-    // be a string — a non-string here renders as '[object Object]'.
-    if (cfg.inlineEdits && !row.__mlPainted && typeof msg.content === 'string') {
+    // Equicord "Inline Edits": previous versions shown inside the message.
+    // Dedupe by content (not a painted flag) so a re-render never stacks —
+    // and a NEW edit (longer history) gets painted on the next render pass.
+    if (cfg.inlineEdits && typeof msg.content === 'string') {
         const history = log[id]?.edits ?? [];
         if (history.length) {
-            msg.content = msg.content + '\n' + history.map((h) => '(edited) ' + String(h)).join('\n');
+            const block = history.map((h) => '(edited) ' + String(h)).join('\n');
+            if (!msg.content.includes(block)) {
+                msg.content = msg.content + '\n' + block;
+            }
         }
-        row.__mlPainted = true;
     }
 }
 
