@@ -26,13 +26,18 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.1.5";
+var PLUGIN_VERSION = "1.2.0";
+var deletedMessageMap = /* @__PURE__ */ new Map();
+var editedMessageMap = /* @__PURE__ */ new Map();
+var manualDeletes = /* @__PURE__ */ new Set();
+var HIGHLIGHT_MAX = 500;
 var LOG_FILE = "message-logger.json";
 var DEFAULT_SETTINGS = {
   enabled: true,
   logDeletes: true,
   logEdits: true,
   ghostPings: true,
+  colorHighlights: true,
   ignoreBots: true,
   ignoreSelf: false,
   maxStored: 300,
@@ -129,6 +134,59 @@ function getFlux() {
         };
       }
     }
+  } catch {
+  }
+  return null;
+}
+function getRawFluxDispatcher() {
+  var _a, _b, _c, _d, _e, _f, _g;
+  try {
+    if (typeof revenge !== "undefined") {
+      const f = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux;
+      if (f && typeof f.onAnyFluxEventDispatched === "function") {
+        return { addInterceptor: (cb) => f.onAnyFluxEventDispatched(cb) };
+      }
+      if ((f == null ? void 0 : f.dispatcher) && typeof f.dispatcher.addInterceptor === "function") {
+        return f.dispatcher;
+      }
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    if (((_b = b == null ? void 0 : b.api) == null ? void 0 : _b.flux) && typeof b.api.flux.intercept === "function") {
+      return { addInterceptor: (cb) => b.api.flux.intercept(cb) };
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const fdB = (_d = (_c = b == null ? void 0 : b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.FluxDispatcher;
+    if (fdB && typeof fdB.addInterceptor === "function") return fdB;
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const fdV = ((_f = (_e = v == null ? void 0 : v.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.FluxDispatcher) || ((_g = v == null ? void 0 : v.common) == null ? void 0 : _g.FluxDispatcher);
+    if (fdV && typeof fdV.addInterceptor === "function") return fdV;
+  } catch {
+  }
+  return null;
+}
+function getMetro() {
+  try {
+    const n = typeof revenge !== "undefined" && (revenge == null ? void 0 : revenge.metro) || null;
+    if (n) return n;
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    if (b == null ? void 0 : b.metro) return b.metro;
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    if (v == null ? void 0 : v.metro) return v.metro;
   } catch {
   }
   return null;
@@ -240,6 +298,7 @@ function coerceSettings(raw) {
     logDeletes: c.logDeletes !== false,
     logEdits: c.logEdits !== false,
     ghostPings: c.ghostPings !== false,
+    colorHighlights: c.colorHighlights !== false,
     ignoreBots: c.ignoreBots !== false,
     ignoreSelf: !!c.ignoreSelf,
     maxStored: typeof c.maxStored === "number" && c.maxStored >= 10 && c.maxStored <= 1e4 ? Math.floor(c.maxStored) : DEFAULT_SETTINGS.maxStored,
@@ -571,6 +630,7 @@ function handleCreate(payload) {
   if (!cfg.enabled) return;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
+  rememberForHighlight(payload);
   const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
   if (inList(channelId, cfg.ignoredChannels)) return;
   const snap = snapshotOf(message, currentUserId());
@@ -584,12 +644,13 @@ function handleCreate(payload) {
   }
 }
 function handleDelete(payload) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   if (!cfg.enabled || !cfg.logDeletes) return;
   const id = String((_c = (_b = (_a = payload == null ? void 0 : payload.message) == null ? void 0 : _a.id) != null ? _b : payload == null ? void 0 : payload.id) != null ? _c : "");
   const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
   if (!id || inList(channelId, cfg.ignoredChannels)) return;
-  const snap = (_h = seen.get(id)) != null ? _h : snapshotOf((_g = payload == null ? void 0 : payload.message) != null ? _g : { id, channelId }, currentUserId());
+  if (((_g = log[id]) == null ? void 0 : _g.status) === "deleted") return;
+  const snap = (_i = seen.get(id)) != null ? _i : snapshotOf((_h = payload == null ? void 0 : payload.message) != null ? _h : { id, channelId }, currentUserId());
   if (cfg.ignoreBots && snap.bot) {
     seen.delete(id);
     return;
@@ -607,7 +668,7 @@ function handleDelete(payload) {
   log[id] = {
     ...snap,
     status: "deleted",
-    edits: (_j = (_i = log[id]) == null ? void 0 : _i.edits) != null ? _j : [],
+    edits: (_k = (_j = log[id]) == null ? void 0 : _j.edits) != null ? _k : [],
     mentionsMe: snap.mentionsMe,
     ghostPing: ghost
   };
@@ -626,6 +687,7 @@ function handleUpdate(payload) {
   if (!cfg.enabled || !cfg.logEdits) return;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
+  rememberForHighlight(payload);
   const id = String(message.id);
   const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
   if (inList(channelId, cfg.ignoredChannels)) return;
@@ -652,6 +714,337 @@ function handleUpdate(payload) {
   prune(cfg.maxStored);
   void persistLog();
 }
+function rememberForHighlight(payload) {
+  var _a, _b, _c, _d, _e;
+  try {
+    const message = payload == null ? void 0 : payload.message;
+    if (!(message == null ? void 0 : message.id)) return;
+    const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
+    const content = typeof message.content === "string" ? message.content : "";
+    const author = (_c = message.author) != null ? _c : {};
+    const rec = {
+      channelId,
+      timestamp: Date.now(),
+      content,
+      authorTag: (_e = (_d = author.global_name) != null ? _d : author.username) != null ? _e : "Unknown",
+      bot: !!author.bot
+    };
+    const isEdit = deletedMessageMap.has(String(message.id));
+    if (content) (isEdit ? highlightEdits : highlightCreates).set(String(message.id), rec);
+    if (isEdit) deletedMessageMap.delete(String(message.id));
+  } catch {
+  }
+}
+function trimHighlightCache(map) {
+  if (map.size <= HIGHLIGHT_MAX) return;
+  const oldest = map.keys().next();
+  if (!oldest.done) map.delete(oldest.value);
+}
+function isSelfDelete(id) {
+  if (!manualDeletes.has(id)) return false;
+  manualDeletes.delete(id);
+  return true;
+}
+function markHighlightDeleted(id, channelId) {
+  deletedMessageMap.set(id, { channelId, timestamp: Date.now() });
+  trimHighlightCache(deletedMessageMap);
+}
+function markHighlightEdited(id, channelId) {
+  if (deletedMessageMap.has(id)) return;
+  editedMessageMap.set(id, { channelId, timestamp: Date.now() });
+  trimHighlightCache(editedMessageMap);
+}
+var highlightCreates = /* @__PURE__ */ new Map();
+var highlightEdits = /* @__PURE__ */ new Map();
+function cachedRecordFor(id) {
+  var _a;
+  return (_a = highlightCreates.get(id)) != null ? _a : highlightEdits.get(id);
+}
+function buildAutomodEvent(id, channelId, record) {
+  return {
+    type: "MESSAGE_EDIT_FAILED_AUTOMOD",
+    messageData: {
+      type: 1,
+      message: {
+        channelId,
+        messageId: id
+      }
+    },
+    errorResponseBody: {
+      code: 2e5,
+      message: (record == null ? void 0 : record.content) || "(deleted)"
+    }
+  };
+}
+function installDeleteRewrite(dispatcher, addCleanup) {
+  if (!dispatcher || typeof dispatcher.addInterceptor !== "function") return false;
+  const dispatch = typeof dispatcher.dispatch === "function" ? dispatcher.dispatch.bind(dispatcher) : null;
+  try {
+    const interceptor = (payload) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+      try {
+        const type = payload == null ? void 0 : payload.type;
+        if (type === "MESSAGE_DELETE" && cfg.logDeletes) {
+          const id = String((_d = (_c = (_a = payload == null ? void 0 : payload.id) != null ? _a : payload == null ? void 0 : payload.messageId) != null ? _c : (_b = payload == null ? void 0 : payload.message) == null ? void 0 : _b.id) != null ? _d : "");
+          const channelId = String((_j = (_i = (_g = (_e = payload == null ? void 0 : payload.channelId) != null ? _e : payload == null ? void 0 : payload.channel_id) != null ? _g : (_f = payload == null ? void 0 : payload.message) == null ? void 0 : _f.channelId) != null ? _i : (_h = payload == null ? void 0 : payload.message) == null ? void 0 : _h.channel_id) != null ? _j : "");
+          if (!id || !channelId) return;
+          if (isSelfDelete(id)) return;
+          if (inList(channelId, cfg.ignoredChannels)) return;
+          const record = cachedRecordFor(id);
+          if (cfg.ignoreBots && (record == null ? void 0 : record.bot)) return;
+          const authorId = (_m = (_k = seen.get(id)) == null ? void 0 : _k.authorId) != null ? _m : (_l = log[id]) == null ? void 0 : _l.authorId;
+          if (cfg.ignoreSelf && authorId && authorId === currentUserId()) return;
+          if (inList(authorId, cfg.ignoredUsers)) return;
+          handleDelete(payload);
+          markHighlightDeleted(id, channelId);
+          return buildAutomodEvent(id, channelId, record);
+        }
+        if (type === "MESSAGE_DELETE_BULK" && cfg.logDeletes) {
+          const ids = Array.isArray(payload == null ? void 0 : payload.ids) ? payload.ids.map(String) : [];
+          const channelId = String((_o = (_n = payload == null ? void 0 : payload.channelId) != null ? _n : payload == null ? void 0 : payload.channel_id) != null ? _o : "");
+          if (!ids.length || !channelId) return;
+          const kept = ids.filter((id) => {
+            var _a2;
+            if (isSelfDelete(id)) return false;
+            if (inList(channelId, cfg.ignoredChannels)) return false;
+            if (cfg.ignoreBots && ((_a2 = cachedRecordFor(id)) == null ? void 0 : _a2.bot)) return false;
+            return true;
+          });
+          if (!kept.length) return;
+          for (const id of kept) {
+            markHighlightDeleted(id, channelId);
+            handleDeleteBulk({ ids: [id], channelId });
+          }
+          if (dispatch) {
+            setTimeout(() => {
+              for (const id of kept) {
+                try {
+                  dispatch(buildAutomodEvent(id, channelId, cachedRecordFor(id)));
+                } catch {
+                }
+              }
+            }, 0);
+            return false;
+          }
+          return;
+        }
+        if (type === "MESSAGE_UPDATE") {
+          const id = String((_q = (_p = payload == null ? void 0 : payload.message) == null ? void 0 : _p.id) != null ? _q : "");
+          const channelId = String((_u = (_t = (_r = payload == null ? void 0 : payload.message) == null ? void 0 : _r.channelId) != null ? _t : (_s = payload == null ? void 0 : payload.message) == null ? void 0 : _s.channel_id) != null ? _u : "");
+          if (id && channelId && cfg.logEdits && !inList(channelId, cfg.ignoredChannels)) {
+            markHighlightEdited(id, channelId);
+          }
+          return;
+        }
+      } catch (e) {
+        hostError("rewrite interceptor failed", e);
+      }
+      return;
+    };
+    const off = dispatcher.addInterceptor(interceptor);
+    addCleanup(typeof off === "function" ? off : () => {
+      var _a;
+      try {
+        const list = (_a = dispatcher._interceptors) != null ? _a : dispatcher._dependencies;
+        if (Array.isArray(list)) {
+          const i = list.indexOf(interceptor);
+          if (i >= 0) list.splice(i, 1);
+        }
+      } catch {
+      }
+    });
+    return true;
+  } catch (e) {
+    hostError("could not install delete rewrite", e);
+    return false;
+  }
+}
+function paintDeletedRow(row, processColor) {
+  const msg = row == null ? void 0 : row.message;
+  if (!(msg == null ? void 0 : msg.id)) return;
+  if (!deletedMessageMap.has(String(msg.id))) return;
+  msg.edited = "(deleted)";
+  const red = processColor("#f04747");
+  msg.textColor = red;
+  row.backgroundHighlight = {
+    backgroundColor: processColor("#f047471f"),
+    gutterColor: red
+  };
+}
+function paintEditedRow(row, processColor) {
+  const msg = row == null ? void 0 : row.message;
+  if (!(msg == null ? void 0 : msg.id)) return;
+  if (!editedMessageMap.has(String(msg.id))) return;
+  row.backgroundHighlight = {
+    backgroundColor: processColor("#faa61a18"),
+    gutterColor: processColor("#faa61a")
+  };
+}
+var rowPaintersInstalled = 0;
+function installRowPainters(addCleanup) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  const React = getReact();
+  const RN = getRN();
+  const processColor = (_a = RN == null ? void 0 : RN.processColor) != null ? _a : ((c) => c);
+  if (!cfg.colorHighlights) {
+    rowPaintersInstalled = 0;
+    return;
+  }
+  let installed = 0;
+  const patchBefore = (target, method, fn) => {
+    try {
+      const original = target == null ? void 0 : target[method];
+      if (typeof original !== "function") return false;
+      target[method] = function(...args) {
+        try {
+          fn(args);
+        } catch {
+        }
+        return original.apply(this, args);
+      };
+      addCleanup(() => {
+        try {
+          target[method] = original;
+        } catch {
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const paintArgs = (args) => {
+    var _a2;
+    const raw = args[1];
+    if (!raw) return;
+    const handleRow = (row) => {
+      if (!row || row.type !== 1) return;
+      paintDeletedRow(row, processColor);
+      paintEditedRow(row, processColor);
+    };
+    if (typeof raw === "string") {
+      try {
+        const rows = JSON.parse(raw);
+        if (Array.isArray(rows)) {
+          let mutated = false;
+          for (const row of rows) {
+            if (((_a2 = row == null ? void 0 : row.message) == null ? void 0 : _a2.id) && (deletedMessageMap.has(String(row.message.id)) || editedMessageMap.has(String(row.message.id)))) {
+              handleRow(row);
+              mutated = true;
+            }
+          }
+          if (mutated) args[1] = JSON.stringify(rows);
+        }
+      } catch {
+      }
+    } else if (Array.isArray(raw)) {
+      for (const row of raw) handleRow(row);
+    } else if (Array.isArray(raw == null ? void 0 : raw.rows)) {
+      for (const row of raw.rows) handleRow(row);
+    }
+  };
+  void React;
+  const chatManager = (_b = RN == null ? void 0 : RN.NativeModules) == null ? void 0 : _b.DCDChatManager;
+  if (chatManager && patchBefore(chatManager, "updateRows", paintArgs)) installed++;
+  const metro = getMetro();
+  const jsChat = (_e = (_c = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _c.call(metro, "updateRows", "getConstants")) != null ? _e : (_d = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _d.call(metro, "updateRows");
+  if (jsChat && jsChat !== chatManager && patchBefore(jsChat, "updateRows", paintArgs)) installed++;
+  let rowManager = null;
+  try {
+    rowManager = (_j = (_i = (_f = metro == null ? void 0 : metro.findByName) == null ? void 0 : _f.call(metro, "RowManager", false)) != null ? _i : (_h = (_g = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _g.call(metro, "RowManager")) == null ? void 0 : _h.RowManager) != null ? _j : null;
+  } catch {
+  }
+  if ((_k = rowManager == null ? void 0 : rowManager.prototype) == null ? void 0 : _k.generate) {
+    try {
+      const proto = rowManager.prototype;
+      const original = proto.generate;
+      proto.generate = function(...args) {
+        var _a2;
+        const row = original.apply(this, args);
+        try {
+          const target = row && row.row || row;
+          if ((_a2 = target == null ? void 0 : target.message) == null ? void 0 : _a2.id) {
+            paintDeletedRow(target, processColor);
+            paintEditedRow(target, processColor);
+          }
+        } catch {
+        }
+        return row;
+      };
+      addCleanup(() => {
+        try {
+          proto.generate = original;
+        } catch {
+        }
+      });
+      installed++;
+    } catch {
+    }
+  }
+  rowPaintersInstalled = installed;
+  hostLog("row painters installed: " + installed);
+}
+function installSelfDeleteBypass(addCleanup) {
+  var _a, _b, _c;
+  try {
+    const metro = getMetro();
+    const actions = (_c = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "deleteMessage", "startEditMessage")) != null ? _c : (_b = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _b.call(metro, "deleteMessage");
+    const del = actions == null ? void 0 : actions.deleteMessage;
+    if (typeof del !== "function") return false;
+    actions.deleteMessage = function(...args) {
+      var _a2, _b2;
+      try {
+        const id = String((_b2 = (_a2 = args == null ? void 0 : args[1]) != null ? _a2 : args == null ? void 0 : args[0]) != null ? _b2 : "");
+        if (id) manualDeletes.add(id);
+      } catch {
+      }
+      return del.apply(this, args);
+    };
+    addCleanup(() => {
+      try {
+        actions.deleteMessage = del;
+      } catch {
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resolveThemeMeta() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  try {
+    const metro = getMetro();
+    const themeStore = (_f = (_e = (_a = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _a.call(metro, "ThemeStore")) != null ? _e : (_d = (_c = (_b = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _b.flux) == null ? void 0 : _c.Stores) == null ? void 0 : _d.ThemeStore) != null ? _f : null;
+    const theme = (_i = themeStore == null ? void 0 : themeStore.theme) != null ? _i : (_h = (_g = themeStore == null ? void 0 : themeStore.getState) == null ? void 0 : _g.call(themeStore)) == null ? void 0 : _h.theme;
+    if (theme === "light") return "light";
+  } catch {
+  }
+  return "dark";
+}
+function viewerColors() {
+  const theme = resolveThemeMeta();
+  if (theme === "light") {
+    return {
+      bg: "rgba(0,0,0,0.04)",
+      text: "#060607",
+      sub: "#4e5058",
+      deleted: "#d83c3e",
+      deletedBg: "rgba(216,60,62,0.10)",
+      edited: "#c28516",
+      editedBg: "rgba(250,166,26,0.12)"
+    };
+  }
+  return {
+    bg: "rgba(255,255,255,0.06)",
+    text: "#dbdee1",
+    sub: "#949ba4",
+    deleted: "#f23f43",
+    deletedBg: "rgba(242,63,67,0.14)",
+    edited: "#faa61a",
+    editedBg: "rgba(250,166,26,0.14)"
+  };
+}
 function makeSettingsComponent() {
   const React = getReact();
   if (!React) return () => null;
@@ -670,8 +1063,8 @@ function makeSettingsComponent() {
         alignItems: "center"
       }
     },
-    el(Text, { style: { flex: 1 } }, props.label),
-    el(Text, { style: { opacity: 0.7, marginLeft: 8 } }, props.value ? "On" : "Off")
+    el(Text, { style: { flex: 1, color: viewerColors().text } }, props.label),
+    el(Text, { style: { color: viewerColors().sub, marginLeft: 8 } }, props.value ? "On" : "Off")
   );
   function SwitchRow(props) {
     const design = getDesign();
@@ -683,22 +1076,26 @@ function makeSettingsComponent() {
     const design = getDesign();
     const Group = design == null ? void 0 : design.TableRowGroup;
     if (Group) return el(Group, { title: props.title }, ...props.children);
+    const C = viewerColors();
     return el(
       View,
-      { style: { marginVertical: 8 } },
-      el(Text, { style: { fontWeight: "bold", padding: 12 } }, props.title),
+      { style: { marginVertical: 8, backgroundColor: C.bg, borderRadius: 8, paddingVertical: 4 } },
+      el(Text, { style: { fontWeight: "bold", padding: 12, paddingBottom: 4, color: C.sub, fontSize: 12 } }, props.title),
       ...props.children
     );
   }
   const DText = (props) => {
+    var _a;
     const design = getDesign();
     const T = design == null ? void 0 : design.Text;
-    return el(T || Text, props, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
+    const style = { color: viewerColors().text, ...(_a = props == null ? void 0 : props.style) != null ? _a : {} };
+    return el(T || Text, { ...props, style }, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
   };
   return function SettingsComponent2(props) {
     var _a, _b, _c, _d, _e, _f;
     const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
     const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
+    const C = viewerColors();
     const [entries, setEntries] = React.useState([]);
     const [filter, setFilter] = React.useState("all");
     const [query, setQuery] = React.useState("");
@@ -770,7 +1167,7 @@ function makeSettingsComponent() {
       },
       el(
         Text,
-        { style: { fontWeight: filter === key ? "bold" : "normal" } },
+        { style: { fontWeight: filter === key ? "bold" : "normal", color: filter === key ? C.text : C.sub } },
         label
       )
     );
@@ -792,7 +1189,7 @@ function makeSettingsComponent() {
         { title: "Status" },
         el(DText, null, "Host: " + (hostKind === "next" ? "Revenge (Next API)" : "Classic / vendetta") + (storageKind ? " \xB7 storage: " + storageKind : "")),
         el(DText, null, startedAt ? "Running since " + new Date(startedAt).toLocaleTimeString() : "Not started \u2014 toggle the plugin off and on"),
-        el(DText, null, "Flux handlers: " + handlersRegistered + "/4"),
+        el(DText, null, "Flux handlers: " + handlersRegistered + "/4 \xB7 row painters: " + rowPaintersInstalled),
         lastStartError ? el(DText, null, "Last error: " + lastStartError) : null
       ),
       el(
@@ -802,6 +1199,7 @@ function makeSettingsComponent() {
         sw("logDeletes", "Log deleted messages"),
         sw("logEdits", "Log edited messages"),
         sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
+        sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
         sw("ignoreBots", "Ignore bot messages"),
         sw("ignoreSelf", "Ignore your own messages")
       ),
@@ -811,22 +1209,24 @@ function makeSettingsComponent() {
         el(DText, null, "Comma-separated channel IDs never get logged."),
         el(TextInput, {
           placeholder: "Channel IDs",
+          placeholderTextColor: C.sub,
           defaultValue: (_e = settings == null ? void 0 : settings.ignoredChannels) != null ? _e : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
           },
-          style: { padding: 8 }
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         el(DText, null, "Comma-separated user IDs never get logged."),
         el(TextInput, {
           placeholder: "User IDs",
+          placeholderTextColor: C.sub,
           defaultValue: (_f = settings == null ? void 0 : settings.ignoredUsers) != null ? _f : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
           },
-          style: { padding: 8 }
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         })
       ),
       el(
@@ -835,29 +1235,42 @@ function makeSettingsComponent() {
         el(View, { style: { flexDirection: "row" } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
         el(TextInput, {
           placeholder: "Search author or text\u2026",
+          placeholderTextColor: C.sub,
           value: query,
           onChangeText: setQuery,
-          style: { padding: 8 }
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
-        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 50).map(
-          (m) => el(
+        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 50).map((m) => {
+          const isDel = m.ghostPing || m.status === "deleted";
+          const statusColor = isDel ? C.deleted : C.edited;
+          return el(
             View,
-            { key: m.id, style: { paddingVertical: 6 } },
+            {
+              key: m.id,
+              style: {
+                borderLeftWidth: 3,
+                borderColor: statusColor,
+                backgroundColor: isDel ? C.deletedBg : C.editedBg,
+                borderRadius: 6,
+                padding: 10,
+                marginBottom: 8
+              }
+            },
             el(
-              DText,
-              null,
+              Text,
+              { style: { color: statusColor, fontWeight: "bold", fontSize: 12, marginBottom: 2 } },
               "[" + (m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED") + "] " + m.authorTag + " \u2014 " + new Date(m.timestamp).toLocaleString()
             ),
-            el(DText, null, m.content || "(no text content)"),
-            m.attachments.length > 0 && el(DText, null, m.attachments.length + " attachment(s) saved as links"),
-            m.edits.length > 0 && el(DText, null, "Previous versions: " + m.edits.join("  |  ")),
+            el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
+            m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " attachment(s) saved as links"),
+            m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
             el(
               Pressable,
               { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
-              el(Text, null, "Delete entry")
+              el(Text, { style: { color: C.sub, fontSize: 12 } }, "Delete entry")
             )
-          )
-        )
+          );
+        })
       ),
       el(
         View,
@@ -865,17 +1278,17 @@ function makeSettingsComponent() {
         el(
           Pressable,
           { onPress: () => void exportLog(), style: { padding: 12, alignItems: "center" } },
-          el(Text, { style: { fontWeight: "bold" } }, "Copy log JSON to clipboard")
+          el(Text, { style: { fontWeight: "bold", color: C.text } }, "Copy log JSON to clipboard")
         ),
         el(
           Pressable,
           { onPress: () => void clearLog(), style: { padding: 12, alignItems: "center" } },
-          el(Text, { style: { fontWeight: "bold" } }, "Clear saved log")
+          el(Text, { style: { fontWeight: "bold", color: C.deleted } }, "Clear saved log")
         ),
         el(
           Pressable,
           { onPress: () => void reload(), style: { padding: 12, alignItems: "center" } },
-          el(Text, null, "Refresh list")
+          el(Text, { style: { color: C.sub } }, "Refresh list")
         )
       )
     );
@@ -958,6 +1371,11 @@ async function startNext({ cleanup, jsonStorage, logger }) {
   }
   handlersRegistered = 0;
   registerFluxHandlers(flux, cleanup);
+  if (!installDeleteRewrite(getRawFluxDispatcher(), cleanup)) {
+    hostError("delete rewrite unavailable \u2014 deleted messages will not stay visible");
+  }
+  installRowPainters(cleanup);
+  installSelfDeleteBypass(cleanup);
   cleanup(() => {
     if (flushTimer) {
       clearTimeout(flushTimer);
@@ -973,7 +1391,7 @@ async function startNext({ cleanup, jsonStorage, logger }) {
   lastStartError = null;
   hostLog("started (Revenge Next)");
   toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
-  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Revenge (Next)\nFlux handlers: " + handlersRegistered + "/4\nIf you can read this, the new build is running.");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Revenge (Next)\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nIf you can read this, the new build is running.");
 }
 async function startClassic() {
   var _a, _b, _c, _d, _e, _f;
@@ -1023,11 +1441,16 @@ async function startClassic() {
   }
   handlersRegistered = 0;
   registerFluxHandlers(flux, (off) => classicDisposers.push(off));
+  if (!installDeleteRewrite(getRawFluxDispatcher(), (off) => classicDisposers.push(off))) {
+    hostError("delete rewrite unavailable \u2014 deleted messages will not stay visible");
+  }
+  installRowPainters((off) => classicDisposers.push(off));
+  installSelfDeleteBypass((off) => classicDisposers.push(off));
   startedAt = Date.now();
   lastStartError = null;
   hostLog("started (Revenge Classic / vendetta host)");
   toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
-  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Classic / vendetta\nStorage: " + (storageKind != null ? storageKind : "none") + "\nFlux handlers: " + handlersRegistered + "/4\nIf you can read this, the new build is running.");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Classic / vendetta\nStorage: " + (storageKind != null ? storageKind : "none") + "\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nIf you can read this, the new build is running.");
 }
 var _SettingsComponent = null;
 function SettingsComponent(props) {
@@ -1077,6 +1500,12 @@ var __instance = {
       } catch {
       }
     }
+    deletedMessageMap.clear();
+    editedMessageMap.clear();
+    highlightCreates.clear();
+    highlightEdits.clear();
+    manualDeletes.clear();
+    rowPaintersInstalled = 0;
     handlersRegistered = 0;
     startedAt = null;
   },
