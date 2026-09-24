@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.6.0";
+var PLUGIN_VERSION = "1.6.1";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -1230,7 +1230,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
   }
 }
 function paintRow(row, processColor) {
-  var _a, _b, _c;
+  var _a, _b;
   const msg = row == null ? void 0 : row.message;
   if (!(msg == null ? void 0 : msg.id)) return;
   const id = String(msg.id);
@@ -1238,13 +1238,10 @@ function paintRow(row, processColor) {
   const isEd = editedMessageMap.has(id);
   if (!isDel && !isEd) return;
   if (isDel) {
-    msg.edited = "(deleted)";
-    if (cfg.deletedInfo) {
-      const entry = log[id];
-      const who = (entry == null ? void 0 : entry.authorTag) ? " by " + entry.authorTag : "";
-      const when = (entry == null ? void 0 : entry.timestamp) ? " at " + new Date(entry.timestamp).toLocaleString() : "";
-      msg.content = String((_a = msg.content) != null ? _a : "") + "\n[deleted" + who + when + "]";
-    }
+    const entry = log[id];
+    const who = cfg.deletedInfo && (entry == null ? void 0 : entry.authorTag) ? " by " + entry.authorTag : "";
+    const when = cfg.deletedInfo && (entry == null ? void 0 : entry.timestamp) ? " at " + new Date(entry.timestamp).toLocaleString() : "";
+    msg.edited = "(deleted" + who + when + ")";
     const red = processColor("#f04747");
     msg.textColor = red;
     row.backgroundHighlight = {
@@ -1257,12 +1254,14 @@ function paintRow(row, processColor) {
       gutterColor: processColor("#faa61a")
     };
   }
-  if (cfg.inlineEdits && !row.__mlPainted && typeof msg.content === "string") {
-    const history = (_c = (_b = log[id]) == null ? void 0 : _b.edits) != null ? _c : [];
+  if (cfg.inlineEdits && typeof msg.content === "string") {
+    const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
     if (history.length) {
-      msg.content = msg.content + "\n" + history.map((h) => "(edited) " + String(h)).join("\n");
+      const block = history.map((h) => "(edited) " + String(h)).join("\n");
+      if (!msg.content.includes(block)) {
+        msg.content = msg.content + "\n" + block;
+      }
     }
-    row.__mlPainted = true;
   }
 }
 var rowPaintersInstalled = 0;
