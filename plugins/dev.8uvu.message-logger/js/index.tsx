@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.2.0';
+const PLUGIN_VERSION = '1.2.1';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1156,7 +1156,7 @@ function makeSettingsComponent() {
     if (!React) return () => null;
     const el = React.createElement.bind(React);
     const RN = getRN() || {};
-    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View } = RN;
+    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View } = RN;
 
     const SwitchRowFallback = (props: any) =>
         el(
@@ -1229,7 +1229,7 @@ function makeSettingsComponent() {
             } catch {}
             Object.assign(merged, log);
             const list = Object.values(merged).sort((a, b) => b.timestamp - a.timestamp);
-            setEntries(list.slice(0, 100));
+            setEntries(list.slice(0, 300));
         };
 
         React.useEffect(() => {
@@ -1307,6 +1307,9 @@ function makeSettingsComponent() {
             View,
             null,
             el(
+                ScrollView,
+                { style: { flex: 1 } },
+            el(
                 RowGroup,
                 { title: 'Status' },
                 el(DText, null, 'Host: ' + (hostKind === 'next' ? 'Revenge (Next API)' : 'Classic / vendetta') + (storageKind ? ' · storage: ' + storageKind : '')),
@@ -1358,7 +1361,7 @@ function makeSettingsComponent() {
                 }),
                 visible.length === 0
                     ? el(DText, null, 'Nothing logged yet. Deleted and edited messages will appear here.')
-                    : visible.slice(0, 50).map((m: LoggedMessage) => {
+                    : visible.slice(0, 200).map((m: LoggedMessage) => {
                           const isDel = m.ghostPing || m.status === 'deleted';
                           const statusColor = isDel ? C.deleted : C.edited;
                           return el(
@@ -1389,6 +1392,7 @@ function makeSettingsComponent() {
                               ),
                           );
                       }),
+            ),
             ),
             el(
                 View,
