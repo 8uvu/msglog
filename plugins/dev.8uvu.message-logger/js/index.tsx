@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.4.0';
+const PLUGIN_VERSION = '1.4.1';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
