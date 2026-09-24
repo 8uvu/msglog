@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.4.2';
+const PLUGIN_VERSION = '1.4.3';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1293,7 +1293,10 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
                     const id = String(payload?.id ?? payload?.messageId ?? payload?.message?.id ?? '');
                     const channelId = String(payload?.channelId ?? payload?.channel_id ?? payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
                     if (!id || !channelId) return;
-                    if (isSelfDelete(id)) return;
+                    if (isSelfDelete(id)) {
+                        // Your own deletes are logged and kept visible in chat
+                        // too (Vencord logs all deletes). Fall through.
+                    }
                     if (inList(channelId, cfg.ignoredChannels)) return;
                     const record = cachedRecordFor(id);
                     if (cfg.ignoreBots && record?.bot) return;
@@ -1389,11 +1392,15 @@ function paintRow(row: any, processColor: (c: any) => any) {
         };
     }
     // Equicord "Inline Edits": show previous versions as part of the message.
-    if (cfg.inlineEdits) {
+    // Paint EXACTLY ONCE per row object: updateRows fires repeatedly for the
+    // same rows, and re-appending would stack '(edited)' lines. Content must
+    // be a string — a non-string here renders as '[object Object]'.
+    if (cfg.inlineEdits && !row.__mlPainted && typeof msg.content === 'string') {
         const history = log[id]?.edits ?? [];
         if (history.length) {
-            msg.content = String(msg.content ?? '') + '\n' + history.map((h) => '(edited) ' + h).join('\n');
+            msg.content = msg.content + '\n' + history.map((h) => '(edited) ' + String(h)).join('\n');
         }
+        row.__mlPainted = true;
     }
 }
 
@@ -1499,9 +1506,9 @@ function installRowPainters(addCleanup: (off: () => void) => void) {
     hostLog('row painters installed: ' + installed);
 }
 
-// Self-delete bypass: when *you* delete a message through Discord's own
-// MessageActions, remember the id so the rewrite lets that MESSAGE_DELETE
-// through untouched (Vencord parity — your own deletes stay deleted).
+// Self-delete tracking: when *you* delete a message through Discord's own
+// MessageActions, remember the id so we log it as deleted (and keep the row
+// visible in chat) while letting Discord's own delete proceed normally.
 function installSelfDeleteBypass(addCleanup: (off: () => void) => void) {
     try {
         const metro = getMetro();
@@ -1548,6 +1555,7 @@ function viewerColors() {
     if (theme === 'light') {
         return {
             bg: 'rgba(0,0,0,0.04)',
+            card: 'rgba(0,0,0,0.05)',
             text: '#060607',
             sub: '#4e5058',
             deleted: '#d83c3e',
@@ -1558,6 +1566,7 @@ function viewerColors() {
     }
     return {
         bg: 'rgba(255,255,255,0.06)',
+        card: 'rgba(255,255,255,0.08)',
         text: '#dbdee1',
         sub: '#949ba4',
         deleted: '#f23f43',
@@ -1574,42 +1583,46 @@ function makeSettingsComponent() {
     if (!React) return () => null;
     const el = React.createElement.bind(React);
     const RN = getRN() || {};
-    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View } = RN;
-
-    const SwitchRowFallback = (props: any) =>
-        el(
-            Pressable,
-            {
-                onPress: () => props.onValueChange(!props.value),
-                style: {
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    alignItems: 'center',
-                },
-            },
-            el(Text, { style: { flex: 1, color: viewerColors().text } }, props.label),
-            el(Text, { style: { color: viewerColors().sub, marginLeft: 8 } }, props.value ? 'On' : 'Off'),
-        );
+    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null } = RN;
 
     function SwitchRow(props: any) {
-        const design = getDesign();
-        const Row = design?.TableSwitchRow;
-        if (Row) return el(Row, props, null);
-        return el(SwitchRowFallback, props, null);
+        const c = viewerColors();
+        const toggle = Switch
+            ? el(Switch, {
+                  value: !!props.value,
+                  onValueChange: props.onValueChange,
+                  trackColor: { false: 'rgba(128,128,128,0.35)', true: '#5865F2' },
+                  thumbColor: '#ffffff',
+              })
+            : el(
+                  Text,
+                  { style: { color: c.sub }, onPress: () => props.onValueChange(!props.value) },
+                  props.value ? 'On' : 'Off',
+              );
+        return el(
+            View,
+            { style: { paddingHorizontal: 16, paddingVertical: 10 } },
+            el(
+                View,
+                { style: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } },
+                el(Text, { style: { color: c.text, fontSize: 16, flex: 1, paddingRight: 12 } }, props.label),
+                toggle,
+            ),
+            props.subLabel ? el(Text, { style: { color: c.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null,
+        );
     }
 
     function RowGroup(props: any) {
-        const design = getDesign();
-        const Group = design?.TableRowGroup;
-        if (Group) return el(Group, { title: props.title }, ...props.children);
-        const C = viewerColors();
+        const c = viewerColors();
         return el(
             View,
-            { style: { marginVertical: 8, backgroundColor: C.bg, borderRadius: 8, paddingVertical: 4 } },
-            el(Text, { style: { fontWeight: 'bold', padding: 12, paddingBottom: 4, color: C.sub, fontSize: 12 } }, props.title),
-            ...props.children,
+            { style: { marginTop: 16 } },
+            el(Text, { style: { color: c.text, fontSize: 15, fontWeight: '600', paddingHorizontal: 16, marginBottom: 6 } }, props.title),
+            el(
+                View,
+                { style: { backgroundColor: c.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } },
+                ...props.children,
+            ),
         );
     }
 
