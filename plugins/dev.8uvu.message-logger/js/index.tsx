@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.4.3';
+const PLUGIN_VERSION = '1.5.0';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -459,6 +459,7 @@ async function loadLog() {
             }
             if (data?.log && typeof data.log === 'object') log = data.log;
             hostLog('loaded ' + Object.keys(log).length + ' entries (plugin storage)');
+            restoreHighlightsFromLog();
         } catch (e) {
             hostError('failed to read plugin storage', e);
         }
@@ -479,6 +480,7 @@ async function loadLog() {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') log = parsed;
         hostLog('loaded ' + Object.keys(log).length + ' entries');
+        restoreHighlightsFromLog();
     } catch {
         log = {};
         hostLog('starting with an empty log');
@@ -771,6 +773,7 @@ interface SavedImage {
     file: string; // file name inside the images dir
     bytes: number; // decoded size, for quota accounting
     time: number; // when saved
+    mime?: string; // detected from the data URL
 }
 
 interface ImageIndex {
@@ -992,6 +995,7 @@ async function saveOneImage(messageId: string, url: string): Promise<void> {
     const dataUrl = await readBlob(blob);
     const comma = dataUrl.indexOf(',');
     if (comma < 0) return;
+    const mime = dataUrl.slice(5, dataUrl.indexOf(';')) || 'image/png';
     const b64 = dataUrl.slice(comma + 1);
     const bytes = Math.floor((b64.length * 3) / 4);
     if (bytes > cfg.attachmentSizeLimitMB * 1024 * 1024) return; // over per-file limit (Equicord "Attachment Size Limit")
@@ -1002,7 +1006,7 @@ async function saveOneImage(messageId: string, url: string): Promise<void> {
     await fs.writeImage(name, b64);
     imageIndex[messageId] = [
         ...(imageIndex[messageId] ?? []),
-        { file: name, bytes, time: stamp },
+        { file: name, bytes, time: stamp, mime },
     ];
     imageIndexDirty = true;
     await saveImageIndex(fs);
@@ -1020,6 +1024,19 @@ function allowedExtensions(): string[] {
         .split(/[\s,]+/)
         .map((s) => s.trim().toLowerCase().replace(/^\./, ''))
         .filter(Boolean);
+}
+
+// Best-effort synchronous read of a saved image file for previews. Returns
+// '' when the file can't be read synchronously (the Image component then just
+// renders an empty tile instead of crashing).
+function readSavedImageB64(file: string): string {
+    try {
+        const fm: any = getFileModule();
+        if (fm && typeof fm.readFileSync === 'function') {
+            return String(fm.readFileSync(docRoot + '/' + IMG_DIR_NAME + '/' + file, 'base64') ?? '');
+        }
+    } catch {}
+    return '';
 }
 
 function isCacheableImageUrl(url: string): boolean {
@@ -1196,6 +1213,31 @@ function handleUpdate(payload: any) {
 }
 
 // ---- In-chat highlighting (Vencord-style) ---------------------------------
+
+// Force-close survival: Discord keeps the automod-kept rows in its message
+// cache across restarts, but our highlight maps start empty — so restored
+// rows lose their red. Rebuild the maps from the persisted log on startup.
+function restoreHighlightsFromLog() {
+    try {
+        let restored = 0;
+        for (const id of Object.keys(log)) {
+            const entry = log[id];
+            if (!entry?.channelId) continue;
+            if (entry.status === 'deleted') {
+                if (!deletedMessageMap.has(id)) {
+                    deletedMessageMap.set(id, { channelId: entry.channelId, timestamp: entry.timestamp ?? Date.now() });
+                    restored++;
+                }
+            } else if (entry.status === 'edited' && !editedMessageMap.has(id)) {
+                editedMessageMap.set(id, { channelId: entry.channelId, timestamp: entry.timestamp ?? Date.now() });
+                restored++;
+            }
+        }
+        if (restored > 0) hostLog('restored ' + restored + ' highlight(s) from saved log');
+    } catch (e) {
+        hostError('highlight restore failed', e);
+    }
+}
 
 // A MESSAGE_CREATE/UPDATE we saw is the authoritative copy of the message —
 // remember it so the automod rewrite can restore content for messages the
@@ -1583,7 +1625,7 @@ function makeSettingsComponent() {
     if (!React) return () => null;
     const el = React.createElement.bind(React);
     const RN = getRN() || {};
-    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null } = RN;
+    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null, Image = null } = RN;
 
     function SwitchRow(props: any) {
         const c = viewerColors();
@@ -1643,6 +1685,7 @@ function makeSettingsComponent() {
         const [filter, setFilter] = React.useState('all');
         const [query, setQuery] = React.useState('');
         const [refreshTick, setRefreshTick] = React.useState(0);
+        const [selectedUser, setSelectedUser] = React.useState<string | null>(null);
 
         React.useEffect(() => {
             settingsChangedCb = () => setRefreshTick((t: number) => t + 1);
@@ -1729,6 +1772,25 @@ function makeSettingsComponent() {
                 toast('Could not clear saved images', 'msglogger-img-clear-fail');
             }
         };
+
+        // Per-user aggregation: who deleted/edited the most.
+        const byUser: Record<string, { name: string; deleted: number; edited: number; ghosts: number; total: number }> = {};
+        for (const m of entries as LoggedMessage[]) {
+            const key = m.authorId || m.authorTag || 'unknown';
+            const u = (byUser[key] ??= { name: m.authorTag || 'Unknown', deleted: 0, edited: 0, ghosts: 0, total: 0 });
+            if (m.status === 'deleted') u.deleted++;
+            else if (m.status === 'edited') u.edited++;
+            if (m.ghostPing) u.ghosts++;
+            u.total++;
+        }
+        const userStats = Object.entries(byUser)
+            .map(([id, s]) => ({ id, ...s }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 15);
+        const userEntries = selectedUser
+            ? (entries as LoggedMessage[]).filter((m) => (m.authorId || m.authorTag || 'unknown') === selectedUser)
+            : [];
+        const selectedName = selectedUser ? (byUser[selectedUser]?.name ?? '') : '';
 
         const tab = (key: string, label: string) =>
             el(
@@ -1862,6 +1924,48 @@ function makeSettingsComponent() {
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
             ),
+            selectedUser
+                ? el(
+                      RowGroup,
+                      { title: selectedName + ' — ' + userEntries.length + ' entries (tap to go back)' },
+                      el(
+                          Pressable,
+                          { onPress: () => setSelectedUser(null), style: { padding: 10 } },
+                          el(Text, { style: { color: C.sub } }, '← Back to all users'),
+                      ),
+                      ...userEntries.slice(0, 30).map((m: LoggedMessage) =>
+                          el(
+                              View,
+                              { key: m.id, style: { paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.bg } },
+                              el(Text, { style: { color: m.status === 'deleted' ? C.deleted : C.edited, fontWeight: 'bold', fontSize: 12 } }, (m.status === 'deleted' ? 'DELETED' : 'EDITED') + (m.ghostPing ? ' · GHOST PING' : '') + ' — ' + new Date(m.timestamp).toLocaleString()),
+                              el(Text, { style: { color: C.text } }, m.content || '(no text content)'),
+                              m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Before: ' + m.edits.join('  |  ')),
+                          ),
+                      ),
+                  )
+                : el(
+                      RowGroup,
+                      { title: 'Users (' + userStats.length + ')' },
+                      userStats.length === 0
+                          ? el(DText, null, 'No logged users yet.')
+                          : userStats.map((u) =>
+                                el(
+                                    Pressable,
+                                    {
+                                        key: u.id,
+                                        onPress: () => setSelectedUser(u.id),
+                                        style: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.bg },
+                                    },
+                                    el(
+                                        View,
+                                        { style: { flex: 1 } },
+                                        el(Text, { style: { color: C.text, fontSize: 15 } }, u.name),
+                                        el(Text, { style: { color: C.sub, fontSize: 12 } }, u.deleted + ' deleted · ' + u.edited + ' edited' + (u.ghosts > 0 ? ' · ' + u.ghosts + ' ghost pings' : '')),
+                                    ),
+                                    el(Text, { style: { color: u.deleted > 0 ? C.deleted : C.sub, fontWeight: 'bold' } }, String(u.total)),
+                                ),
+                            ),
+                  ),
             el(
                 RowGroup,
                 { title: 'Saved log (' + visible.length + ' shown)' },
@@ -1899,6 +2003,22 @@ function makeSettingsComponent() {
                               el(Text, { style: { color: C.text } }, m.content || '(no text content)'),
                               m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + ' attachment(s) saved as links'),
                               m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + ' image(s) saved to device') : null,
+                              ...(m.savedImages && Image
+                                  ? [
+                                        el(
+                                            View,
+                                            { key: m.id + ':imgs', style: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 } },
+                                            (imageIndex[m.id] ?? []).slice(0, 4).map((img, i) =>
+                                                el(Image, {
+                                                    key: i,
+                                                    source: { uri: 'data:' + (img.mime ?? 'image/png') + ';base64,' + readSavedImageB64(img.file) },
+                                                    style: { width: 72, height: 72, borderRadius: 6, marginRight: 6, marginBottom: 6, backgroundColor: C.bg },
+                                                    resizeMode: 'cover',
+                                                }),
+                                            ),
+                                        ),
+                                    ]
+                                  : []),
                               m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Previous versions: ' + m.edits.join('  |  ')),
                               el(
                                   Pressable,
