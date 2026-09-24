@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.3.0';
+const PLUGIN_VERSION = '1.4.0';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -48,15 +48,23 @@ interface Settings {
     enabled: boolean;
     logDeletes: boolean;
     logEdits: boolean;
+    inlineEdits: boolean;
     ghostPings: boolean;
     colorHighlights: boolean;
     ignoreBots: boolean;
+    ignoreWebhooks: boolean;
     ignoreSelf: boolean;
+    ignoreSelfEdits: boolean;
     saveImages: boolean;
     imageQuotaGB: number;
+    attachmentSizeLimitMB: number;
+    attachmentExtensions: string;
+    timeBasedCleanupMinutes: number;
     maxStored: number;
     ignoredChannels: string;
     ignoredUsers: string;
+    ignoredGuilds: string;
+    whitelistedIds: string;
 }
 
 interface LoggedMessage {
@@ -81,15 +89,23 @@ const DEFAULT_SETTINGS: Settings = {
     enabled: true,
     logDeletes: true,
     logEdits: true,
+    inlineEdits: true,
     ghostPings: true,
     colorHighlights: true,
     ignoreBots: true,
+    ignoreWebhooks: false,
     ignoreSelf: false,
+    ignoreSelfEdits: false,
     saveImages: true,
     imageQuotaGB: 2,
+    attachmentSizeLimitMB: 100,
+    attachmentExtensions: 'png,jpg,jpeg,gif,webp',
+    timeBasedCleanupMinutes: 0,
     maxStored: 300,
     ignoredChannels: '',
     ignoredUsers: '',
+    ignoredGuilds: '',
+    whitelistedIds: '',
 };
 
 // ---- Lazy host accessors (never call these at eval/module time) ----------
@@ -351,19 +367,33 @@ function coerceSettings(raw: any): Settings {
         logEdits: c.logEdits !== false,
         ghostPings: c.ghostPings !== false,
         colorHighlights: c.colorHighlights !== false,
+        inlineEdits: c.inlineEdits !== false,
         saveImages: c.saveImages !== false,
         imageQuotaGB:
             typeof c.imageQuotaGB === 'number' && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100
                 ? c.imageQuotaGB
                 : DEFAULT_SETTINGS.imageQuotaGB,
+        attachmentSizeLimitMB:
+            typeof c.attachmentSizeLimitMB === 'number' && c.attachmentSizeLimitMB >= 1 && c.attachmentSizeLimitMB <= 1024
+                ? c.attachmentSizeLimitMB
+                : DEFAULT_SETTINGS.attachmentSizeLimitMB,
+        attachmentExtensions: typeof c.attachmentExtensions === 'string' ? c.attachmentExtensions : DEFAULT_SETTINGS.attachmentExtensions,
+        timeBasedCleanupMinutes:
+            typeof c.timeBasedCleanupMinutes === 'number' && c.timeBasedCleanupMinutes >= 0 && c.timeBasedCleanupMinutes <= 525600
+                ? Math.floor(c.timeBasedCleanupMinutes)
+                : 0,
         ignoreBots: c.ignoreBots !== false,
+        ignoreWebhooks: !!c.ignoreWebhooks,
         ignoreSelf: !!c.ignoreSelf,
+        ignoreSelfEdits: !!c.ignoreSelfEdits,
         maxStored:
             typeof c.maxStored === 'number' && c.maxStored >= 10 && c.maxStored <= 10000
                 ? Math.floor(c.maxStored)
                 : DEFAULT_SETTINGS.maxStored,
         ignoredChannels: typeof c.ignoredChannels === 'string' ? c.ignoredChannels : '',
         ignoredUsers: typeof c.ignoredUsers === 'string' ? c.ignoredUsers : '',
+        ignoredGuilds: typeof c.ignoredGuilds === 'string' ? c.ignoredGuilds : '',
+        whitelistedIds: typeof c.whitelistedIds === 'string' ? c.whitelistedIds : '',
     };
 }
 
@@ -571,10 +601,13 @@ function snapshotOf(message: any, me: string) {
     return {
         id: String(message?.id ?? ''),
         channelId: String(message?.channelId ?? message?.channel_id ?? ''),
+        guildId: String(message?.guildId ?? message?.guild_id ?? message?.messageSnapshots?.[0]?.message?.guildId ?? ''),
+        webhook: !!author?.webhook || message?.webhookId != null,
         authorId: String(author.id ?? ''),
         authorTag: author.globalName || author.username || 'Unknown',
         bot: !!author.bot,
         content: String(message?.content ?? ''),
+        editHistory: [] as string[],
         attachments: Array.isArray(message?.attachments)
             ? message.attachments
                   .map((a: any) => String(a?.url ?? a?.proxy_url ?? ''))
@@ -587,6 +620,34 @@ function snapshotOf(message: any, me: string) {
 }
 
 const seen = new Map<string, ReturnType<typeof snapshotOf>>();
+
+// Messages we skipped at create/update time (ignored bots/webhooks/self).
+// Their later MESSAGE_DELETE must be ignored too — the delete payload carries
+// no author info, so without this the fallback snapshot would log them.
+const skippedIds = new Set<string>();
+function rememberSkipped(id: string) {
+    if (!id) return;
+    skippedIds.add(id);
+    if (skippedIds.size > 500) {
+        const first = skippedIds.values().next();
+        if (!first.done) skippedIds.delete(first.value);
+    }
+}
+function takeSkipped(id: string): boolean {
+    if (!skippedIds.has(id)) return false;
+    skippedIds.delete(id);
+    return true;
+}
+
+// Shared per-message gate (Equicord parity): whitelist overrides every other
+// ignore; guild ignores apply to non-whitelisted messages.
+function gateMessage(message: any, snap: ReturnType<typeof snapshotOf>): boolean {
+    const id = snap.id;
+    const channelId = snap.channelId;
+    if (inList(id, cfg.whitelistedIds) || inList(channelId, cfg.whitelistedIds)) return true;
+    if (inList(id, cfg.ignoredUsers) || inList(channelId, cfg.ignoredChannels) || inList(snap.guildId, cfg.ignoredGuilds)) return false;
+    return true;
+}
 
 function toast(content: string, key: string) {
     try {
@@ -933,6 +994,7 @@ async function saveOneImage(messageId: string, url: string): Promise<void> {
     if (comma < 0) return;
     const b64 = dataUrl.slice(comma + 1);
     const bytes = Math.floor((b64.length * 3) / 4);
+    if (bytes > cfg.attachmentSizeLimitMB * 1024 * 1024) return; // over per-file limit (Equicord "Attachment Size Limit")
     if (bytes > imageQuotaBytes()) return; // single file bigger than the whole quota
     await evictOverQuota(fs, bytes);
     const stamp = Date.now();
@@ -951,15 +1013,62 @@ async function saveOneImage(messageId: string, url: string): Promise<void> {
     }
 }
 
-// Only Discord CDN attachments are worth caching; other hosts are skipped.
+// Only Discord CDN attachments worth caching, filtered by the user's
+// extension allowlist (Equicord "Attachment File Extensions").
+function allowedExtensions(): string[] {
+    return cfg.attachmentExtensions
+        .split(/[\s,]+/)
+        .map((s) => s.trim().toLowerCase().replace(/^\./, ''))
+        .filter(Boolean);
+}
+
 function isCacheableImageUrl(url: string): boolean {
-    return /(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
+    if (/(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) === false) return false;
+    const exts = allowedExtensions();
+    if (!exts.length) return false;
+    return exts.some((ext) => new RegExp('\\.' + ext + '(\\?|$)', 'i').test(url));
 }
 
 function queueImagesForEntry(entry: LoggedMessage): void {
     if (!cfg.saveImages) return;
     const urls = entry.attachments.filter(isCacheableImageUrl).slice(0, 5);
     for (const url of urls) enqueueImageSave(entry.id, url);
+}
+
+// Equicord "Time Based Cleanup Minutes": drop logged messages older than the
+// threshold (0 = disabled). Preserves the current channel when possible.
+let cleanupTimer: any = null;
+function runTimeBasedCleanup(): void {
+    const mins = cfg.timeBasedCleanupMinutes;
+    if (!mins) return;
+    const cutoff = Date.now() - mins * 60000;
+    let removed = 0;
+    for (const id of Object.keys(log)) {
+        if (log[id].timestamp < cutoff) {
+            delete log[id];
+            removed++;
+        }
+    }
+    if (removed > 0) {
+        void persistLog();
+        hostLog('time-based cleanup removed ' + removed + ' old entries');
+    }
+}
+
+function startCleanupInterval(): void {
+    stopCleanupInterval();
+    if (!cfg.timeBasedCleanupMinutes) return;
+    cleanupTimer = setInterval(runTimeBasedCleanup, Math.max(5, Math.min(cfg.timeBasedCleanupMinutes, 60)) * 60000);
+    if (typeof cleanupTimer?.unref === 'function') cleanupTimer.unref();
+}
+
+function stopCleanupInterval(): void {
+    if (cleanupTimer) {
+        try {
+            clearInterval(cleanupTimer);
+        } catch {}
+        cleanupTimer = null;
+    }
 }
 
 // ---- Flux handlers --------------------------------------------------------
@@ -969,12 +1078,18 @@ function handleCreate(payload: any) {
     const message = payload?.message;
     if (!message?.id) return;
     rememberForHighlight(payload);
-    const channelId = String(message.channelId ?? message.channel_id ?? '');
-    if (inList(channelId, cfg.ignoredChannels)) return;
     const snap = snapshotOf(message, currentUserId());
-    if (cfg.ignoreBots && snap.bot) return;
-    if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) return;
-    if (inList(snap.authorId, cfg.ignoredUsers)) return;
+    if (!gateMessage(message, snap)) return;
+    const self = snap.authorId && snap.authorId === currentUserId();
+    if (
+        (cfg.ignoreBots && snap.bot) ||
+        (cfg.ignoreWebhooks && snap.webhook) ||
+        (cfg.ignoreSelf && self) ||
+        inList(snap.authorId, cfg.ignoredUsers)
+    ) {
+        rememberSkipped(snap.id);
+        return;
+    }
     seen.set(snap.id, snap);
     if (seen.size > cfg.maxStored * 4) {
         const first = seen.keys().next();
@@ -987,10 +1102,15 @@ function handleDelete(payload: any) {
     const id = String(payload?.message?.id ?? payload?.id ?? '');
     const channelId = String(payload?.message?.channelId ?? payload?.channelId ?? '');
     if (!id || inList(channelId, cfg.ignoredChannels)) return;
+    if (!gateMessage(payload?.message ?? { id, channelId }, { id, channelId, guildId: String(payload?.guildId ?? '') } as any)) return;
     // The rewrite interceptor calls this AND the per-event MESSAGE_DELETE
     // handler can still see the original payload on some hosts — capture only
     // the first time so ghost toasts never double-fire.
     if (log[id]?.status === 'deleted') return;
+    if (takeSkipped(id)) {
+        seen.delete(id);
+        return;
+    }
     const snap =
         seen.get(id) ??
         snapshotOf(payload?.message ?? { id, channelId }, currentUserId());
@@ -1001,6 +1121,10 @@ function handleDelete(payload: any) {
             .slice(0, 5);
     }
     if (cfg.ignoreBots && snap.bot) {
+        seen.delete(id);
+        return;
+    }
+    if (cfg.ignoreWebhooks && snap.webhook) {
         seen.delete(id);
         return;
     }
@@ -1040,25 +1164,30 @@ function handleUpdate(payload: any) {
     if (!message?.id) return;
     rememberForHighlight(payload);
     const id = String(message.id);
-    const channelId = String(message.channelId ?? message.channel_id ?? '');
-    if (inList(channelId, cfg.ignoredChannels)) return;
     const prev = seen.get(id);
     const snap = snapshotOf(message, currentUserId());
+    if (!gateMessage(message, snap)) return;
     if (cfg.ignoreBots && snap.bot) return;
-    if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) return;
+    if (cfg.ignoreWebhooks && snap.webhook) return;
+    const self = snap.authorId && snap.authorId === currentUserId();
+    if (cfg.ignoreSelf && self) return;
+    if (cfg.ignoreSelfEdits && self) return;
     if (inList(snap.authorId, cfg.ignoredUsers)) return;
     seen.set(id, snap);
     const prevContent = prev && typeof prev.content === 'string' ? prev.content : null;
-    const isRealEdit = prevContent !== null && !!message.edited_timestamp && prevContent !== snap.content;
+    // Discord's MESSAGE_UPDATE often omits edited_timestamp — the content
+    // change alone is a real edit. Requiring the timestamp was dropping all
+    // edit history (the "only says EDITED" bug).
+    const isRealEdit = prevContent !== null && prevContent !== snap.content;
+    const priorHistory = prev?.editHistory ?? [];
+    if (isRealEdit && prevContent !== null) priorHistory.push(prevContent);
+    if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
     if (!isRealEdit && !log[id]) return;
     const existing = log[id];
     log[id] = {
         ...snap,
         status: 'edited',
-        edits: [
-            ...(existing?.edits ?? []),
-            ...(isRealEdit && prevContent !== null ? [prevContent] : []),
-        ].slice(-10),
+        edits: [...(existing?.edits ?? []), ...(isRealEdit && prevContent !== null ? [prevContent] : [])].slice(-10),
         mentionsMe: snap.mentionsMe,
         ghostPing: existing?.ghostPing ?? false,
     } as LoggedMessage;
@@ -1238,27 +1367,34 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
 // DCDChatManager.updateRows (JSON payload) and RowManager.generate (row
 // objects). Deleted rows get red text + red gutter, edited rows an amber
 // gutter — matching Vencord's messageLogger styling.
-function paintDeletedRow(row: any, processColor: (c: any) => any) {
+function paintRow(row: any, processColor: (c: any) => any) {
     const msg = row?.message;
     if (!msg?.id) return;
-    if (!deletedMessageMap.has(String(msg.id))) return;
-    msg.edited = '(deleted)';
-    const red = processColor('#f04747');
-    msg.textColor = red;
-    row.backgroundHighlight = {
-        backgroundColor: processColor('#f047471f'),
-        gutterColor: red,
-    };
-}
-
-function paintEditedRow(row: any, processColor: (c: any) => any) {
-    const msg = row?.message;
-    if (!msg?.id) return;
-    if (!editedMessageMap.has(String(msg.id))) return;
-    row.backgroundHighlight = {
-        backgroundColor: processColor('#faa61a18'),
-        gutterColor: processColor('#faa61a'),
-    };
+    const id = String(msg.id);
+    const isDel = deletedMessageMap.has(id);
+    const isEd = editedMessageMap.has(id);
+    if (!isDel && !isEd) return;
+    if (isDel) {
+        msg.edited = '(deleted)';
+        const red = processColor('#f04747');
+        msg.textColor = red;
+        row.backgroundHighlight = {
+            backgroundColor: processColor('#f047471f'),
+            gutterColor: red,
+        };
+    } else {
+        row.backgroundHighlight = {
+            backgroundColor: processColor('#faa61a18'),
+            gutterColor: processColor('#faa61a'),
+        };
+    }
+    // Equicord "Inline Edits": show previous versions as part of the message.
+    if (cfg.inlineEdits) {
+        const history = log[id]?.edits ?? [];
+        if (history.length) {
+            msg.content = String(msg.content ?? '') + '\n' + history.map((h) => '(edited) ' + h).join('\n');
+        }
+    }
 }
 
 let rowPaintersInstalled = 0;
@@ -1299,8 +1435,7 @@ function installRowPainters(addCleanup: (off: () => void) => void) {
         if (!raw) return;
         const handleRow = (row: any) => {
             if (!row || row.type !== 1) return;
-            paintDeletedRow(row, processColor);
-            paintEditedRow(row, processColor);
+            paintRow(row, processColor);
         };
         if (typeof raw === 'string') {
             try {
@@ -1346,8 +1481,7 @@ function installRowPainters(addCleanup: (off: () => void) => void) {
                 try {
                     const target = (row && row.row) || row;
                     if (target?.message?.id) {
-                        paintDeletedRow(target, processColor);
-                        paintEditedRow(target, processColor);
+                        paintRow(target, processColor);
                     }
                 } catch {}
                 return row;
@@ -1630,6 +1764,25 @@ function makeSettingsComponent() {
                 sw('ghostPings', 'Ghost ping toasts', 'Toast when a message mentioning you is deleted'),
                 sw('colorHighlights', 'Red highlight in chat', 'Deleted messages stay visible with red text (Vencord style)'),
                 sw('saveImages', 'Save deleted images', 'Downloads images from deleted messages into device storage'),
+                el(DText, null, 'Attachment size limit (MB) — larger files are not saved.'),
+                el(TextInput, {
+                    placeholder: '100',
+                    placeholderTextColor: C.sub,
+                    defaultValue: String(settings?.attachmentSizeLimitMB ?? 100),
+                    onChangeText: (t: string) => {
+                        const n = parseFloat(t);
+                        if (!isNaN(n) && n >= 1 && n <= 1024) api?.jsonStorage?.set?.({ attachmentSizeLimitMB: n });
+                    },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
+                el(DText, null, 'Attachment file extensions — comma-separated allowlist.'),
+                el(TextInput, {
+                    placeholder: 'png,jpg,jpeg,gif,webp',
+                    placeholderTextColor: C.sub,
+                    defaultValue: settings?.attachmentExtensions ?? 'png,jpg,jpeg,gif,webp',
+                    onChangeText: (t: string) => api?.jsonStorage?.set?.({ attachmentExtensions: t }),
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
                 el(DText, null, 'Image storage quota (GB)'),
                 el(TextInput, {
                     placeholder: '2',
@@ -1643,7 +1796,41 @@ function makeSettingsComponent() {
                 }),
                 el(DText, null, 'Used: ' + (totalSavedBytes() / 1073741824).toFixed(2) + ' GB · ' + Object.keys(imageIndex).length + ' messages with saved images'),
                 sw('ignoreBots', 'Ignore bot messages'),
+                sw('ignoreWebhooks', 'Ignore webhooks'),
                 sw('ignoreSelf', 'Ignore your own messages'),
+                sw('ignoreSelfEdits', 'Ignore your own edits'),
+                sw('inlineEdits', 'Inline edit history', 'Show previous versions inside the message (Equicord Inline Edits)'),
+            ),
+            el(
+                RowGroup,
+                { title: 'Filters' },
+                el(DText, null, 'Whitelisted IDs — comma-separated user/channel IDs always logged, overriding ignores.'),
+                el(TextInput, {
+                    placeholder: 'e.g. 123456789012345678',
+                    placeholderTextColor: C.sub,
+                    defaultValue: settings?.whitelistedIds ?? '',
+                    onChangeText: (t: string) => api?.jsonStorage?.set?.({ whitelistedIds: t }),
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
+                el(DText, null, 'Ignored guilds — comma-separated server IDs never logged.'),
+                el(TextInput, {
+                    placeholder: 'Server IDs',
+                    placeholderTextColor: C.sub,
+                    defaultValue: settings?.ignoredGuilds ?? '',
+                    onChangeText: (t: string) => api?.jsonStorage?.set?.({ ignoredGuilds: t }),
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
+                el(DText, null, 'Time-based cleanup — remove entries older than this many minutes (0 = off).'),
+                el(TextInput, {
+                    placeholder: '0',
+                    placeholderTextColor: C.sub,
+                    defaultValue: String(settings?.timeBasedCleanupMinutes ?? 0),
+                    onChangeText: (t: string) => {
+                        const n = parseInt(t, 10);
+                        if (!isNaN(n) && n >= 0) api?.jsonStorage?.set?.({ timeBasedCleanupMinutes: n });
+                    },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
             ),
             el(
                 RowGroup,
@@ -1817,6 +2004,8 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
 
     await loadLog();
     void loadImageIndex();
+    runTimeBasedCleanup();
+    startCleanupInterval();
 
     const flux = getFlux();
     if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
@@ -1895,6 +2084,8 @@ async function startClassic() {
 
     await loadLog();
     void loadImageIndex();
+    runTimeBasedCleanup();
+    startCleanupInterval();
 
     const flux = getFlux();
     if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
@@ -1980,6 +2171,7 @@ let __instance: any = {
         highlightEdits.clear();
         manualDeletes.clear();
         imageQueue.length = 0;
+        stopCleanupInterval();
         rowPaintersInstalled = 0;
         handlersRegistered = 0;
         startedAt = null;
