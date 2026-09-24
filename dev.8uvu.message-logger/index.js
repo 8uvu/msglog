@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.5.0";
+var PLUGIN_VERSION = "1.5.1";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -1449,6 +1449,7 @@ function makeSettingsComponent() {
   }
   function RowGroup(props) {
     const c = viewerColors();
+    const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
     return el(
       View,
       { style: { marginTop: 16 } },
@@ -1456,7 +1457,7 @@ function makeSettingsComponent() {
       el(
         View,
         { style: { backgroundColor: c.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } },
-        ...props.children
+        ...kids
       )
     );
   }
