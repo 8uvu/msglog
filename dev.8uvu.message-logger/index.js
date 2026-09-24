@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.2.1";
+var PLUGIN_VERSION = "1.3.0";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -40,6 +40,8 @@ var DEFAULT_SETTINGS = {
   colorHighlights: true,
   ignoreBots: true,
   ignoreSelf: false,
+  saveImages: true,
+  imageQuotaGB: 2,
   maxStored: 300,
   ignoredChannels: "",
   ignoredUsers: ""
@@ -299,6 +301,8 @@ function coerceSettings(raw) {
     logEdits: c.logEdits !== false,
     ghostPings: c.ghostPings !== false,
     colorHighlights: c.colorHighlights !== false,
+    saveImages: c.saveImages !== false,
+    imageQuotaGB: typeof c.imageQuotaGB === "number" && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100 ? c.imageQuotaGB : DEFAULT_SETTINGS.imageQuotaGB,
     ignoreBots: c.ignoreBots !== false,
     ignoreSelf: !!c.ignoreSelf,
     maxStored: typeof c.maxStored === "number" && c.maxStored >= 10 && c.maxStored <= 1e4 ? Math.floor(c.maxStored) : DEFAULT_SETTINGS.maxStored,
@@ -502,7 +506,7 @@ function snapshotOf(message, me) {
     attachments: Array.isArray(message == null ? void 0 : message.attachments) ? message.attachments.map((a) => {
       var _a2, _b2;
       return String((_b2 = (_a2 = a == null ? void 0 : a.url) != null ? _a2 : a == null ? void 0 : a.proxy_url) != null ? _b2 : "");
-    }).filter(Boolean).slice(0, 3) : [],
+    }).filter(Boolean).slice(0, 10) : [],
     timestamp: Date.parse(message == null ? void 0 : message.timestamp) || Date.now(),
     mentionsMe: me !== "" && mentionsOf(message).includes(me)
   };
@@ -625,6 +629,231 @@ function toastGhostPing(entry) {
     "msglogger-ghostping-" + entry.id
   );
 }
+var IMG_DIR_NAME = "message-logger/images";
+var IMG_INDEX_FILE = "message-logger/images-index.json";
+var imageIndex = {};
+var imageQueue = [];
+var imageBusy = false;
+var imageIndexDirty = false;
+function getFetch() {
+  try {
+    if (typeof fetch === "function") return fetch.bind(globalThis);
+  } catch {
+  }
+  return null;
+}
+function getBlobReader() {
+  try {
+    if (typeof FileReader === "function") {
+      return (blob) => new Promise((resolve, reject) => {
+        try {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result));
+          fr.onerror = () => reject(fr.error);
+          fr.readAsDataURL(blob);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+    if (typeof Blob === "function" && typeof Blob.prototype.arrayBuffer === "function") {
+      return async (blob) => {
+        const buf = await blob.arrayBuffer();
+        let s = "";
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return "data:application/octet-stream;base64," + btoa(s);
+      };
+    }
+  } catch {
+  }
+  return null;
+}
+function getNormalizedFs() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const fm = getFileModule();
+  let modern = null;
+  try {
+    if (typeof revenge !== "undefined") {
+      modern = (_c = (_b = revenge == null ? void 0 : revenge.fs) != null ? _b : (_a = revenge == null ? void 0 : revenge.native) == null ? void 0 : _a.fs) != null ? _c : null;
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    modern = modern || (b == null ? void 0 : b.fs) || ((_d = b == null ? void 0 : b.native) == null ? void 0 : _d.fs) || null;
+  } catch {
+  }
+  if (modern && typeof modern.writeFile === "function" && typeof modern.readFile === "function") {
+    let root = "";
+    try {
+      if (typeof modern.getConstants === "function") {
+        const c = modern.getConstants();
+        root = String((_f = (_e = c == null ? void 0 : c.files) != null ? _e : c == null ? void 0 : c.data) != null ? _f : "");
+      }
+    } catch {
+    }
+    const abs = (p) => root ? root + "/" + p : p;
+    return {
+      dirPath: root ? root + "/" + IMG_DIR_NAME : null,
+      writeImage: async (name, dataB64) => {
+        await modern.writeFile(abs(IMG_DIR_NAME + "/" + name), dataB64);
+      },
+      writeText: async (path, data) => {
+        await modern.writeFile(abs(path), data);
+      },
+      readText: async (path) => String(await modern.readFile(abs(path))),
+      remove: async (path) => {
+        try {
+          if (typeof modern.rm === "function") return !!await modern.rm(path);
+          if (typeof modern.deleteFileSync === "function") return !!modern.deleteFileSync(path);
+          if (typeof modern.unlink === "function") {
+            await modern.unlink(path);
+            return true;
+          }
+        } catch {
+        }
+        return false;
+      }
+    };
+  }
+  if (fm && typeof fm.writeFile === "function") {
+    let docs = "";
+    try {
+      docs = String((_i = (_h = (_g = fm.getConstants) == null ? void 0 : _g.call(fm)) == null ? void 0 : _h.DocumentsDirPath) != null ? _i : "/docs");
+    } catch {
+    }
+    return {
+      dirPath: docs + "/" + IMG_DIR_NAME,
+      writeImage: async (name, dataB64) => {
+        await fm.writeFile("documents", IMG_DIR_NAME + "/" + name, dataB64, "base64");
+      },
+      writeText: async (_path, data) => {
+        await fm.writeFile("documents", IMG_INDEX_FILE, data, "utf8");
+      },
+      readText: async (_path) => String(await fm.readFile(docs + "/" + IMG_INDEX_FILE, "utf8")),
+      remove: async (_path) => false
+      // legacy FileModule has no delete primitive
+    };
+  }
+  return null;
+}
+async function loadImageIndex() {
+  const fs = getNormalizedFs();
+  if (!fs) return;
+  try {
+    const raw = await fs.readText(IMG_INDEX_FILE);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") imageIndex = parsed;
+  } catch {
+  }
+}
+async function saveImageIndex(fs) {
+  if (!imageIndexDirty) return;
+  try {
+    await fs.writeText(IMG_INDEX_FILE, JSON.stringify(imageIndex));
+    imageIndexDirty = false;
+  } catch (e) {
+    hostError("failed to write image index", e);
+  }
+}
+function imageQuotaBytes() {
+  return Math.max(0, cfg.imageQuotaGB) * 1024 * 1024 * 1024;
+}
+function totalSavedBytes() {
+  var _a;
+  let sum = 0;
+  for (const id of Object.keys(imageIndex)) {
+    for (const img of (_a = imageIndex[id]) != null ? _a : []) sum += img.bytes || 0;
+  }
+  return sum;
+}
+async function evictOverQuota(fs, extraBytes) {
+  var _a, _b, _c, _d;
+  let total = totalSavedBytes() + extraBytes;
+  const quota = imageQuotaBytes();
+  if (total <= quota) return;
+  const entries = [];
+  for (const id of Object.keys(imageIndex)) {
+    ((_a = imageIndex[id]) != null ? _a : []).forEach((img, i) => entries.push({ id, img, i }));
+  }
+  entries.sort((a, b) => a.img.time - b.img.time);
+  for (const e of entries) {
+    if (total <= quota) break;
+    const ok = await fs.remove(((_b = fs.dirPath) != null ? _b : "") + "/" + e.img.file);
+    if (ok || !fs.dirPath) {
+      imageIndex[e.id] = ((_c = imageIndex[e.id]) != null ? _c : []).filter((_, i) => i !== e.i);
+      if (!((_d = imageIndex[e.id]) == null ? void 0 : _d.length)) delete imageIndex[e.id];
+      total -= e.img.bytes || 0;
+      imageIndexDirty = true;
+    } else {
+      break;
+    }
+  }
+}
+function enqueueImageSave(messageId, url) {
+  if (!cfg.saveImages || imageQuotaBytes() <= 0) return;
+  if (!getFetch() || !getBlobReader()) return;
+  imageQueue.push({ id: messageId, url });
+  if (imageQueue.length > 100) imageQueue.shift();
+  void pumpImageQueue();
+}
+async function pumpImageQueue() {
+  if (imageBusy) return;
+  imageBusy = true;
+  try {
+    while (imageQueue.length > 0) {
+      const job = imageQueue.shift();
+      try {
+        await saveOneImage(job.id, job.url);
+      } catch (e) {
+        hostError("image save failed", e);
+      }
+    }
+  } finally {
+    imageBusy = false;
+  }
+}
+async function saveOneImage(messageId, url) {
+  var _a, _b, _c;
+  const fs = getNormalizedFs();
+  if (!fs) return;
+  const fetchFn = getFetch();
+  const readBlob = getBlobReader();
+  if (!fetchFn || !readBlob) return;
+  const res = await fetchFn(url, { method: "GET" });
+  if (!res || !res.ok) return;
+  const blob = await res.blob();
+  const dataUrl = await readBlob(blob);
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return;
+  const b64 = dataUrl.slice(comma + 1);
+  const bytes = Math.floor(b64.length * 3 / 4);
+  if (bytes > imageQuotaBytes()) return;
+  await evictOverQuota(fs, bytes);
+  const stamp = Date.now();
+  const name = messageId + "-" + stamp + "-" + ((_b = (_a = imageIndex[messageId]) == null ? void 0 : _a.length) != null ? _b : 0) + ".b64";
+  await fs.writeImage(name, b64);
+  imageIndex[messageId] = [
+    ...(_c = imageIndex[messageId]) != null ? _c : [],
+    { file: name, bytes, time: stamp }
+  ];
+  imageIndexDirty = true;
+  await saveImageIndex(fs);
+  const entry = log[messageId];
+  if (entry) {
+    entry.savedImages = imageIndex[messageId].length;
+    void persistLog();
+  }
+}
+function isCacheableImageUrl(url) {
+  return /(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
+}
+function queueImagesForEntry(entry) {
+  if (!cfg.saveImages) return;
+  const urls = entry.attachments.filter(isCacheableImageUrl).slice(0, 5);
+  for (const url of urls) enqueueImageSave(entry.id, url);
+}
 function handleCreate(payload) {
   var _a, _b;
   if (!cfg.enabled) return;
@@ -644,13 +873,19 @@ function handleCreate(payload) {
   }
 }
 function handleDelete(payload) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   if (!cfg.enabled || !cfg.logDeletes) return;
   const id = String((_c = (_b = (_a = payload == null ? void 0 : payload.message) == null ? void 0 : _a.id) != null ? _b : payload == null ? void 0 : payload.id) != null ? _c : "");
   const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
   if (!id || inList(channelId, cfg.ignoredChannels)) return;
   if (((_g = log[id]) == null ? void 0 : _g.status) === "deleted") return;
   const snap = (_i = seen.get(id)) != null ? _i : snapshotOf((_h = payload == null ? void 0 : payload.message) != null ? _h : { id, channelId }, currentUserId());
+  if (snap.attachments.length === 0 && Array.isArray((_j = payload == null ? void 0 : payload.message) == null ? void 0 : _j.embeds) && payload.message.embeds.length > 0) {
+    snap.attachments = payload.message.embeds.map((e) => {
+      var _a2, _b2, _c2, _d2, _e2, _f2;
+      return String((_f2 = (_e2 = (_c2 = (_a2 = e == null ? void 0 : e.image) == null ? void 0 : _a2.url) != null ? _c2 : (_b2 = e == null ? void 0 : e.image) == null ? void 0 : _b2.proxy_url) != null ? _e2 : (_d2 = e == null ? void 0 : e.thumbnail) == null ? void 0 : _d2.url) != null ? _f2 : "");
+    }).filter(Boolean).slice(0, 5);
+  }
   if (cfg.ignoreBots && snap.bot) {
     seen.delete(id);
     return;
@@ -668,12 +903,13 @@ function handleDelete(payload) {
   log[id] = {
     ...snap,
     status: "deleted",
-    edits: (_k = (_j = log[id]) == null ? void 0 : _j.edits) != null ? _k : [],
+    edits: (_l = (_k = log[id]) == null ? void 0 : _k.edits) != null ? _l : [],
     mentionsMe: snap.mentionsMe,
     ghostPing: ghost
   };
   prune(cfg.maxStored);
   void persistLog();
+  queueImagesForEntry(log[id]);
   if (ghost) toastGhostPing(log[id]);
 }
 function handleDeleteBulk(payload) {
@@ -1092,7 +1328,7 @@ function makeSettingsComponent() {
     return el(T || Text, { ...props, style }, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
   };
   return function SettingsComponent2(props) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g;
     const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
     const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
     const C = viewerColors();
@@ -1158,6 +1394,27 @@ function makeSettingsComponent() {
       }
       void reload();
     };
+    const clearImageCache = async () => {
+      var _a2, _b2;
+      try {
+        const fs = getNormalizedFs();
+        const base = (_a2 = fs == null ? void 0 : fs.dirPath) != null ? _a2 : "";
+        for (const id of Object.keys(imageIndex)) {
+          for (const img of (_b2 = imageIndex[id]) != null ? _b2 : []) {
+            try {
+              await (fs == null ? void 0 : fs.remove(base + "/" + img.file));
+            } catch {
+            }
+          }
+        }
+        imageIndex = {};
+        imageIndexDirty = true;
+        if (fs) await saveImageIndex(fs);
+        toast("Saved images cleared", "msglogger-img-clear");
+      } catch {
+        toast("Could not clear saved images", "msglogger-img-clear-fail");
+      }
+    };
     const tab = (key, label) => el(
       Pressable,
       {
@@ -1203,6 +1460,20 @@ function makeSettingsComponent() {
           sw("logEdits", "Log edited messages"),
           sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
           sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
+          sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
+          el(DText, null, "Image storage quota (GB)"),
+          el(TextInput, {
+            placeholder: "2",
+            placeholderTextColor: C.sub,
+            defaultValue: String((_e = settings == null ? void 0 : settings.imageQuotaGB) != null ? _e : 2),
+            onChangeText: (t) => {
+              var _a2, _b2;
+              const n = parseFloat(t);
+              if (!isNaN(n) && n >= 0.1 && n <= 100) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { imageQuotaGB: n });
+            },
+            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+          }),
+          el(DText, null, "Used: " + (totalSavedBytes() / 1073741824).toFixed(2) + " GB \xB7 " + Object.keys(imageIndex).length + " messages with saved images"),
           sw("ignoreBots", "Ignore bot messages"),
           sw("ignoreSelf", "Ignore your own messages")
         ),
@@ -1213,7 +1484,7 @@ function makeSettingsComponent() {
           el(TextInput, {
             placeholder: "Channel IDs",
             placeholderTextColor: C.sub,
-            defaultValue: (_e = settings == null ? void 0 : settings.ignoredChannels) != null ? _e : "",
+            defaultValue: (_f = settings == null ? void 0 : settings.ignoredChannels) != null ? _f : "",
             onChangeText: (t) => {
               var _a2, _b2;
               return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
@@ -1224,7 +1495,7 @@ function makeSettingsComponent() {
           el(TextInput, {
             placeholder: "User IDs",
             placeholderTextColor: C.sub,
-            defaultValue: (_f = settings == null ? void 0 : settings.ignoredUsers) != null ? _f : "",
+            defaultValue: (_g = settings == null ? void 0 : settings.ignoredUsers) != null ? _g : "",
             onChangeText: (t) => {
               var _a2, _b2;
               return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
@@ -1266,6 +1537,7 @@ function makeSettingsComponent() {
               ),
               el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
               m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " attachment(s) saved as links"),
+              m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + " image(s) saved to device") : null,
               m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
               el(
                 Pressable,
@@ -1288,6 +1560,11 @@ function makeSettingsComponent() {
           Pressable,
           { onPress: () => void clearLog(), style: { padding: 12, alignItems: "center" } },
           el(Text, { style: { fontWeight: "bold", color: C.deleted } }, "Clear saved log")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void clearImageCache(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { color: C.deleted } }, "Clear saved images")
         ),
         el(
           Pressable,
@@ -1367,6 +1644,7 @@ async function startNext({ cleanup, jsonStorage, logger }) {
     }
   }
   await loadLog();
+  void loadImageIndex();
   const flux = getFlux();
   if (!flux || typeof flux.onFluxEventDispatched !== "function") {
     hostError("flux API unavailable \u2014 capture disabled this session");
@@ -1395,7 +1673,7 @@ async function startNext({ cleanup, jsonStorage, logger }) {
   lastStartError = null;
   hostLog("started (Revenge Next)");
   toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
-  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Revenge (Next)\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nIf you can read this, the new build is running.");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Revenge (Next)\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nImages cached: " + Object.keys(imageIndex).length + "\nIf you can read this, the new build is running.");
 }
 async function startClassic() {
   var _a, _b, _c, _d, _e, _f;
@@ -1437,6 +1715,7 @@ async function startClassic() {
   }
   refreshClassicConfig();
   await loadLog();
+  void loadImageIndex();
   const flux = getFlux();
   if (!flux || typeof flux.onFluxEventDispatched !== "function") {
     hostError("flux API unavailable \u2014 capture disabled this session");
@@ -1454,7 +1733,7 @@ async function startClassic() {
   lastStartError = null;
   hostLog("started (Revenge Classic / vendetta host)");
   toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
-  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Classic / vendetta\nStorage: " + (storageKind != null ? storageKind : "none") + "\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nIf you can read this, the new build is running.");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Classic / vendetta\nStorage: " + (storageKind != null ? storageKind : "none") + "\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nImages cached: " + Object.keys(imageIndex).length + "\nIf you can read this, the new build is running.");
 }
 var _SettingsComponent = null;
 function SettingsComponent(props) {
@@ -1509,6 +1788,7 @@ var __instance = {
     highlightCreates.clear();
     highlightEdits.clear();
     manualDeletes.clear();
+    imageQueue.length = 0;
     rowPaintersInstalled = 0;
     handlersRegistered = 0;
     startedAt = null;
