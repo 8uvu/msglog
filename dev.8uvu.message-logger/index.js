@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.3.0";
+var PLUGIN_VERSION = "1.4.0";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -36,15 +36,23 @@ var DEFAULT_SETTINGS = {
   enabled: true,
   logDeletes: true,
   logEdits: true,
+  inlineEdits: true,
   ghostPings: true,
   colorHighlights: true,
   ignoreBots: true,
+  ignoreWebhooks: false,
   ignoreSelf: false,
+  ignoreSelfEdits: false,
   saveImages: true,
   imageQuotaGB: 2,
+  attachmentSizeLimitMB: 100,
+  attachmentExtensions: "png,jpg,jpeg,gif,webp",
+  timeBasedCleanupMinutes: 0,
   maxStored: 300,
   ignoredChannels: "",
-  ignoredUsers: ""
+  ignoredUsers: "",
+  ignoredGuilds: "",
+  whitelistedIds: ""
 };
 function getReact() {
   var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -301,13 +309,21 @@ function coerceSettings(raw) {
     logEdits: c.logEdits !== false,
     ghostPings: c.ghostPings !== false,
     colorHighlights: c.colorHighlights !== false,
+    inlineEdits: c.inlineEdits !== false,
     saveImages: c.saveImages !== false,
     imageQuotaGB: typeof c.imageQuotaGB === "number" && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100 ? c.imageQuotaGB : DEFAULT_SETTINGS.imageQuotaGB,
+    attachmentSizeLimitMB: typeof c.attachmentSizeLimitMB === "number" && c.attachmentSizeLimitMB >= 1 && c.attachmentSizeLimitMB <= 1024 ? c.attachmentSizeLimitMB : DEFAULT_SETTINGS.attachmentSizeLimitMB,
+    attachmentExtensions: typeof c.attachmentExtensions === "string" ? c.attachmentExtensions : DEFAULT_SETTINGS.attachmentExtensions,
+    timeBasedCleanupMinutes: typeof c.timeBasedCleanupMinutes === "number" && c.timeBasedCleanupMinutes >= 0 && c.timeBasedCleanupMinutes <= 525600 ? Math.floor(c.timeBasedCleanupMinutes) : 0,
     ignoreBots: c.ignoreBots !== false,
+    ignoreWebhooks: !!c.ignoreWebhooks,
     ignoreSelf: !!c.ignoreSelf,
+    ignoreSelfEdits: !!c.ignoreSelfEdits,
     maxStored: typeof c.maxStored === "number" && c.maxStored >= 10 && c.maxStored <= 1e4 ? Math.floor(c.maxStored) : DEFAULT_SETTINGS.maxStored,
     ignoredChannels: typeof c.ignoredChannels === "string" ? c.ignoredChannels : "",
-    ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : ""
+    ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : "",
+    ignoredGuilds: typeof c.ignoredGuilds === "string" ? c.ignoredGuilds : "",
+    whitelistedIds: typeof c.whitelistedIds === "string" ? c.whitelistedIds : ""
   };
 }
 function refreshConfigFromStorage() {
@@ -494,15 +510,18 @@ function mentionsOf(message) {
   return out;
 }
 function snapshotOf(message, me) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   const author = (_a = message == null ? void 0 : message.author) != null ? _a : {};
   return {
     id: String((_b = message == null ? void 0 : message.id) != null ? _b : ""),
     channelId: String((_d = (_c = message == null ? void 0 : message.channelId) != null ? _c : message == null ? void 0 : message.channel_id) != null ? _d : ""),
-    authorId: String((_e = author.id) != null ? _e : ""),
+    guildId: String((_j = (_i = (_e = message == null ? void 0 : message.guildId) != null ? _e : message == null ? void 0 : message.guild_id) != null ? _i : (_h = (_g = (_f = message == null ? void 0 : message.messageSnapshots) == null ? void 0 : _f[0]) == null ? void 0 : _g.message) == null ? void 0 : _h.guildId) != null ? _j : ""),
+    webhook: !!(author == null ? void 0 : author.webhook) || (message == null ? void 0 : message.webhookId) != null,
+    authorId: String((_k = author.id) != null ? _k : ""),
     authorTag: author.globalName || author.username || "Unknown",
     bot: !!author.bot,
-    content: String((_f = message == null ? void 0 : message.content) != null ? _f : ""),
+    content: String((_l = message == null ? void 0 : message.content) != null ? _l : ""),
+    editHistory: [],
     attachments: Array.isArray(message == null ? void 0 : message.attachments) ? message.attachments.map((a) => {
       var _a2, _b2;
       return String((_b2 = (_a2 = a == null ? void 0 : a.url) != null ? _a2 : a == null ? void 0 : a.proxy_url) != null ? _b2 : "");
@@ -512,6 +531,27 @@ function snapshotOf(message, me) {
   };
 }
 var seen = /* @__PURE__ */ new Map();
+var skippedIds = /* @__PURE__ */ new Set();
+function rememberSkipped(id) {
+  if (!id) return;
+  skippedIds.add(id);
+  if (skippedIds.size > 500) {
+    const first = skippedIds.values().next();
+    if (!first.done) skippedIds.delete(first.value);
+  }
+}
+function takeSkipped(id) {
+  if (!skippedIds.has(id)) return false;
+  skippedIds.delete(id);
+  return true;
+}
+function gateMessage(message, snap) {
+  const id = snap.id;
+  const channelId = snap.channelId;
+  if (inList(id, cfg.whitelistedIds) || inList(channelId, cfg.whitelistedIds)) return true;
+  if (inList(id, cfg.ignoredUsers) || inList(channelId, cfg.ignoredChannels) || inList(snap.guildId, cfg.ignoredGuilds)) return false;
+  return true;
+}
 function toast(content, key) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
   try {
@@ -829,6 +869,7 @@ async function saveOneImage(messageId, url) {
   if (comma < 0) return;
   const b64 = dataUrl.slice(comma + 1);
   const bytes = Math.floor(b64.length * 3 / 4);
+  if (bytes > cfg.attachmentSizeLimitMB * 1024 * 1024) return;
   if (bytes > imageQuotaBytes()) return;
   await evictOverQuota(fs, bytes);
   const stamp = Date.now();
@@ -846,26 +887,64 @@ async function saveOneImage(messageId, url) {
     void persistLog();
   }
 }
+function allowedExtensions() {
+  return cfg.attachmentExtensions.split(/[\s,]+/).map((s) => s.trim().toLowerCase().replace(/^\./, "")).filter(Boolean);
+}
 function isCacheableImageUrl(url) {
-  return /(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
+  if (/(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) === false) return false;
+  const exts = allowedExtensions();
+  if (!exts.length) return false;
+  return exts.some((ext) => new RegExp("\\." + ext + "(\\?|$)", "i").test(url));
 }
 function queueImagesForEntry(entry) {
   if (!cfg.saveImages) return;
   const urls = entry.attachments.filter(isCacheableImageUrl).slice(0, 5);
   for (const url of urls) enqueueImageSave(entry.id, url);
 }
+var cleanupTimer = null;
+function runTimeBasedCleanup() {
+  const mins = cfg.timeBasedCleanupMinutes;
+  if (!mins) return;
+  const cutoff = Date.now() - mins * 6e4;
+  let removed = 0;
+  for (const id of Object.keys(log)) {
+    if (log[id].timestamp < cutoff) {
+      delete log[id];
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    void persistLog();
+    hostLog("time-based cleanup removed " + removed + " old entries");
+  }
+}
+function startCleanupInterval() {
+  stopCleanupInterval();
+  if (!cfg.timeBasedCleanupMinutes) return;
+  cleanupTimer = setInterval(runTimeBasedCleanup, Math.max(5, Math.min(cfg.timeBasedCleanupMinutes, 60)) * 6e4);
+  if (typeof (cleanupTimer == null ? void 0 : cleanupTimer.unref) === "function") cleanupTimer.unref();
+}
+function stopCleanupInterval() {
+  if (cleanupTimer) {
+    try {
+      clearInterval(cleanupTimer);
+    } catch {
+    }
+    cleanupTimer = null;
+  }
+}
 function handleCreate(payload) {
-  var _a, _b;
   if (!cfg.enabled) return;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
   rememberForHighlight(payload);
-  const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
-  if (inList(channelId, cfg.ignoredChannels)) return;
   const snap = snapshotOf(message, currentUserId());
-  if (cfg.ignoreBots && snap.bot) return;
-  if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) return;
-  if (inList(snap.authorId, cfg.ignoredUsers)) return;
+  if (!gateMessage(message, snap)) return;
+  const self = snap.authorId && snap.authorId === currentUserId();
+  if (cfg.ignoreBots && snap.bot || cfg.ignoreWebhooks && snap.webhook || cfg.ignoreSelf && self || inList(snap.authorId, cfg.ignoredUsers)) {
+    rememberSkipped(snap.id);
+    return;
+  }
   seen.set(snap.id, snap);
   if (seen.size > cfg.maxStored * 4) {
     const first = seen.keys().next();
@@ -873,20 +952,29 @@ function handleCreate(payload) {
   }
 }
 function handleDelete(payload) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
   if (!cfg.enabled || !cfg.logDeletes) return;
   const id = String((_c = (_b = (_a = payload == null ? void 0 : payload.message) == null ? void 0 : _a.id) != null ? _b : payload == null ? void 0 : payload.id) != null ? _c : "");
   const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
   if (!id || inList(channelId, cfg.ignoredChannels)) return;
-  if (((_g = log[id]) == null ? void 0 : _g.status) === "deleted") return;
-  const snap = (_i = seen.get(id)) != null ? _i : snapshotOf((_h = payload == null ? void 0 : payload.message) != null ? _h : { id, channelId }, currentUserId());
-  if (snap.attachments.length === 0 && Array.isArray((_j = payload == null ? void 0 : payload.message) == null ? void 0 : _j.embeds) && payload.message.embeds.length > 0) {
+  if (!gateMessage((_g = payload == null ? void 0 : payload.message) != null ? _g : { id, channelId }, { id, channelId, guildId: String((_h = payload == null ? void 0 : payload.guildId) != null ? _h : "") })) return;
+  if (((_i = log[id]) == null ? void 0 : _i.status) === "deleted") return;
+  if (takeSkipped(id)) {
+    seen.delete(id);
+    return;
+  }
+  const snap = (_k = seen.get(id)) != null ? _k : snapshotOf((_j = payload == null ? void 0 : payload.message) != null ? _j : { id, channelId }, currentUserId());
+  if (snap.attachments.length === 0 && Array.isArray((_l = payload == null ? void 0 : payload.message) == null ? void 0 : _l.embeds) && payload.message.embeds.length > 0) {
     snap.attachments = payload.message.embeds.map((e) => {
       var _a2, _b2, _c2, _d2, _e2, _f2;
       return String((_f2 = (_e2 = (_c2 = (_a2 = e == null ? void 0 : e.image) == null ? void 0 : _a2.url) != null ? _c2 : (_b2 = e == null ? void 0 : e.image) == null ? void 0 : _b2.proxy_url) != null ? _e2 : (_d2 = e == null ? void 0 : e.thumbnail) == null ? void 0 : _d2.url) != null ? _f2 : "");
     }).filter(Boolean).slice(0, 5);
   }
   if (cfg.ignoreBots && snap.bot) {
+    seen.delete(id);
+    return;
+  }
+  if (cfg.ignoreWebhooks && snap.webhook) {
     seen.delete(id);
     return;
   }
@@ -903,7 +991,7 @@ function handleDelete(payload) {
   log[id] = {
     ...snap,
     status: "deleted",
-    edits: (_l = (_k = log[id]) == null ? void 0 : _k.edits) != null ? _l : [],
+    edits: (_n = (_m = log[id]) == null ? void 0 : _m.edits) != null ? _n : [],
     mentionsMe: snap.mentionsMe,
     ghostPing: ghost
   };
@@ -919,33 +1007,35 @@ function handleDeleteBulk(payload) {
   }
 }
 function handleUpdate(payload) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c;
   if (!cfg.enabled || !cfg.logEdits) return;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
   rememberForHighlight(payload);
   const id = String(message.id);
-  const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
-  if (inList(channelId, cfg.ignoredChannels)) return;
   const prev = seen.get(id);
   const snap = snapshotOf(message, currentUserId());
+  if (!gateMessage(message, snap)) return;
   if (cfg.ignoreBots && snap.bot) return;
-  if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) return;
+  if (cfg.ignoreWebhooks && snap.webhook) return;
+  const self = snap.authorId && snap.authorId === currentUserId();
+  if (cfg.ignoreSelf && self) return;
+  if (cfg.ignoreSelfEdits && self) return;
   if (inList(snap.authorId, cfg.ignoredUsers)) return;
   seen.set(id, snap);
   const prevContent = prev && typeof prev.content === "string" ? prev.content : null;
-  const isRealEdit = prevContent !== null && !!message.edited_timestamp && prevContent !== snap.content;
+  const isRealEdit = prevContent !== null && prevContent !== snap.content;
+  const priorHistory = (_a = prev == null ? void 0 : prev.editHistory) != null ? _a : [];
+  if (isRealEdit && prevContent !== null) priorHistory.push(prevContent);
+  if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
   if (!isRealEdit && !log[id]) return;
   const existing = log[id];
   log[id] = {
     ...snap,
     status: "edited",
-    edits: [
-      ...(_c = existing == null ? void 0 : existing.edits) != null ? _c : [],
-      ...isRealEdit && prevContent !== null ? [prevContent] : []
-    ].slice(-10),
+    edits: [...(_b = existing == null ? void 0 : existing.edits) != null ? _b : [], ...isRealEdit && prevContent !== null ? [prevContent] : []].slice(-10),
     mentionsMe: snap.mentionsMe,
-    ghostPing: (_d = existing == null ? void 0 : existing.ghostPing) != null ? _d : false
+    ghostPing: (_c = existing == null ? void 0 : existing.ghostPing) != null ? _c : false
   };
   prune(cfg.maxStored);
   void persistLog();
@@ -1095,26 +1185,34 @@ function installDeleteRewrite(dispatcher, addCleanup) {
     return false;
   }
 }
-function paintDeletedRow(row, processColor) {
+function paintRow(row, processColor) {
+  var _a, _b, _c;
   const msg = row == null ? void 0 : row.message;
   if (!(msg == null ? void 0 : msg.id)) return;
-  if (!deletedMessageMap.has(String(msg.id))) return;
-  msg.edited = "(deleted)";
-  const red = processColor("#f04747");
-  msg.textColor = red;
-  row.backgroundHighlight = {
-    backgroundColor: processColor("#f047471f"),
-    gutterColor: red
-  };
-}
-function paintEditedRow(row, processColor) {
-  const msg = row == null ? void 0 : row.message;
-  if (!(msg == null ? void 0 : msg.id)) return;
-  if (!editedMessageMap.has(String(msg.id))) return;
-  row.backgroundHighlight = {
-    backgroundColor: processColor("#faa61a18"),
-    gutterColor: processColor("#faa61a")
-  };
+  const id = String(msg.id);
+  const isDel = deletedMessageMap.has(id);
+  const isEd = editedMessageMap.has(id);
+  if (!isDel && !isEd) return;
+  if (isDel) {
+    msg.edited = "(deleted)";
+    const red = processColor("#f04747");
+    msg.textColor = red;
+    row.backgroundHighlight = {
+      backgroundColor: processColor("#f047471f"),
+      gutterColor: red
+    };
+  } else {
+    row.backgroundHighlight = {
+      backgroundColor: processColor("#faa61a18"),
+      gutterColor: processColor("#faa61a")
+    };
+  }
+  if (cfg.inlineEdits) {
+    const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
+    if (history.length) {
+      msg.content = String((_c = msg.content) != null ? _c : "") + "\n" + history.map((h) => "(edited) " + h).join("\n");
+    }
+  }
 }
 var rowPaintersInstalled = 0;
 function installRowPainters(addCleanup) {
@@ -1155,8 +1253,7 @@ function installRowPainters(addCleanup) {
     if (!raw) return;
     const handleRow = (row) => {
       if (!row || row.type !== 1) return;
-      paintDeletedRow(row, processColor);
-      paintEditedRow(row, processColor);
+      paintRow(row, processColor);
     };
     if (typeof raw === "string") {
       try {
@@ -1200,8 +1297,7 @@ function installRowPainters(addCleanup) {
         try {
           const target = row && row.row || row;
           if ((_a2 = target == null ? void 0 : target.message) == null ? void 0 : _a2.id) {
-            paintDeletedRow(target, processColor);
-            paintEditedRow(target, processColor);
+            paintRow(target, processColor);
           }
         } catch {
         }
@@ -1328,7 +1424,7 @@ function makeSettingsComponent() {
     return el(T || Text, { ...props, style }, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
   };
   return function SettingsComponent2(props) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
     const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
     const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
     const C = viewerColors();
@@ -1461,11 +1557,34 @@ function makeSettingsComponent() {
           sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
           sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
           sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
+          el(DText, null, "Attachment size limit (MB) \u2014 larger files are not saved."),
+          el(TextInput, {
+            placeholder: "100",
+            placeholderTextColor: C.sub,
+            defaultValue: String((_e = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _e : 100),
+            onChangeText: (t) => {
+              var _a2, _b2;
+              const n = parseFloat(t);
+              if (!isNaN(n) && n >= 1 && n <= 1024) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentSizeLimitMB: n });
+            },
+            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+          }),
+          el(DText, null, "Attachment file extensions \u2014 comma-separated allowlist."),
+          el(TextInput, {
+            placeholder: "png,jpg,jpeg,gif,webp",
+            placeholderTextColor: C.sub,
+            defaultValue: (_f = settings == null ? void 0 : settings.attachmentExtensions) != null ? _f : "png,jpg,jpeg,gif,webp",
+            onChangeText: (t) => {
+              var _a2, _b2;
+              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentExtensions: t });
+            },
+            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+          }),
           el(DText, null, "Image storage quota (GB)"),
           el(TextInput, {
             placeholder: "2",
             placeholderTextColor: C.sub,
-            defaultValue: String((_e = settings == null ? void 0 : settings.imageQuotaGB) != null ? _e : 2),
+            defaultValue: String((_g = settings == null ? void 0 : settings.imageQuotaGB) != null ? _g : 2),
             onChangeText: (t) => {
               var _a2, _b2;
               const n = parseFloat(t);
@@ -1475,7 +1594,48 @@ function makeSettingsComponent() {
           }),
           el(DText, null, "Used: " + (totalSavedBytes() / 1073741824).toFixed(2) + " GB \xB7 " + Object.keys(imageIndex).length + " messages with saved images"),
           sw("ignoreBots", "Ignore bot messages"),
-          sw("ignoreSelf", "Ignore your own messages")
+          sw("ignoreWebhooks", "Ignore webhooks"),
+          sw("ignoreSelf", "Ignore your own messages"),
+          sw("ignoreSelfEdits", "Ignore your own edits"),
+          sw("inlineEdits", "Inline edit history", "Show previous versions inside the message (Equicord Inline Edits)")
+        ),
+        el(
+          RowGroup,
+          { title: "Filters" },
+          el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel IDs always logged, overriding ignores."),
+          el(TextInput, {
+            placeholder: "e.g. 123456789012345678",
+            placeholderTextColor: C.sub,
+            defaultValue: (_h = settings == null ? void 0 : settings.whitelistedIds) != null ? _h : "",
+            onChangeText: (t) => {
+              var _a2, _b2;
+              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { whitelistedIds: t });
+            },
+            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+          }),
+          el(DText, null, "Ignored guilds \u2014 comma-separated server IDs never logged."),
+          el(TextInput, {
+            placeholder: "Server IDs",
+            placeholderTextColor: C.sub,
+            defaultValue: (_i = settings == null ? void 0 : settings.ignoredGuilds) != null ? _i : "",
+            onChangeText: (t) => {
+              var _a2, _b2;
+              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredGuilds: t });
+            },
+            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+          }),
+          el(DText, null, "Time-based cleanup \u2014 remove entries older than this many minutes (0 = off)."),
+          el(TextInput, {
+            placeholder: "0",
+            placeholderTextColor: C.sub,
+            defaultValue: String((_j = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _j : 0),
+            onChangeText: (t) => {
+              var _a2, _b2;
+              const n = parseInt(t, 10);
+              if (!isNaN(n) && n >= 0) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { timeBasedCleanupMinutes: n });
+            },
+            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+          })
         ),
         el(
           RowGroup,
@@ -1484,7 +1644,7 @@ function makeSettingsComponent() {
           el(TextInput, {
             placeholder: "Channel IDs",
             placeholderTextColor: C.sub,
-            defaultValue: (_f = settings == null ? void 0 : settings.ignoredChannels) != null ? _f : "",
+            defaultValue: (_k = settings == null ? void 0 : settings.ignoredChannels) != null ? _k : "",
             onChangeText: (t) => {
               var _a2, _b2;
               return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
@@ -1495,7 +1655,7 @@ function makeSettingsComponent() {
           el(TextInput, {
             placeholder: "User IDs",
             placeholderTextColor: C.sub,
-            defaultValue: (_g = settings == null ? void 0 : settings.ignoredUsers) != null ? _g : "",
+            defaultValue: (_l = settings == null ? void 0 : settings.ignoredUsers) != null ? _l : "",
             onChangeText: (t) => {
               var _a2, _b2;
               return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
@@ -1645,6 +1805,8 @@ async function startNext({ cleanup, jsonStorage, logger }) {
   }
   await loadLog();
   void loadImageIndex();
+  runTimeBasedCleanup();
+  startCleanupInterval();
   const flux = getFlux();
   if (!flux || typeof flux.onFluxEventDispatched !== "function") {
     hostError("flux API unavailable \u2014 capture disabled this session");
@@ -1716,6 +1878,8 @@ async function startClassic() {
   refreshClassicConfig();
   await loadLog();
   void loadImageIndex();
+  runTimeBasedCleanup();
+  startCleanupInterval();
   const flux = getFlux();
   if (!flux || typeof flux.onFluxEventDispatched !== "function") {
     hostError("flux API unavailable \u2014 capture disabled this session");
@@ -1789,6 +1953,7 @@ var __instance = {
     highlightEdits.clear();
     manualDeletes.clear();
     imageQueue.length = 0;
+    stopCleanupInterval();
     rowPaintersInstalled = 0;
     handlersRegistered = 0;
     startedAt = null;
