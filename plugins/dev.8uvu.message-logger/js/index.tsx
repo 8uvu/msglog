@@ -34,13 +34,22 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.1.5';
+const PLUGIN_VERSION = '1.2.0';
+
+// In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
+// Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
+// rewrite; manualDeletes are ids the user deleted themselves (never kept).
+const deletedMessageMap = new Map<string, { channelId: string; timestamp: number }>();
+const editedMessageMap = new Map<string, { channelId: string; timestamp: number }>();
+const manualDeletes = new Set<string>();
+const HIGHLIGHT_MAX = 500;
 
 interface Settings {
     enabled: boolean;
     logDeletes: boolean;
     logEdits: boolean;
     ghostPings: boolean;
+    colorHighlights: boolean;
     ignoreBots: boolean;
     ignoreSelf: boolean;
     maxStored: number;
@@ -70,6 +79,7 @@ const DEFAULT_SETTINGS: Settings = {
     logDeletes: true,
     logEdits: true,
     ghostPings: true,
+    colorHighlights: true,
     ignoreBots: true,
     ignoreSelf: false,
     maxStored: 300,
@@ -170,6 +180,62 @@ function getFlux(): any {
                 };
             }
         }
+    } catch {}
+    return null;
+}
+
+// Raw dispatch-channel for the rewrite engine. Each host exposes the
+// pre-dispatch mutation point differently, so this returns a normalized
+// { addInterceptor } adapter:
+//   - Next:     revenge.discord.flux.onAnyFluxEventDispatched (falsy blocks,
+//               returned object replaces/merges into the payload)
+//   - Classic:  bunny.api.flux.intercept (nullish pass, falsy block, object merge)
+//   - vendetta: metro.common.FluxDispatcher.addInterceptor (+ .dispatch)
+function getRawFluxDispatcher(): any {
+    try {
+        if (typeof revenge !== 'undefined') {
+            const f: any = (revenge as any)?.discord?.flux;
+            if (f && typeof f.onAnyFluxEventDispatched === 'function') {
+                return { addInterceptor: (cb: any) => f.onAnyFluxEventDispatched(cb) };
+            }
+            if (f?.dispatcher && typeof f.dispatcher.addInterceptor === 'function') {
+                return f.dispatcher;
+            }
+        }
+    } catch {}
+    try {
+        const b: any = typeof bunny !== 'undefined' ? bunny : null;
+        if (b?.api?.flux && typeof b.api.flux.intercept === 'function') {
+            return { addInterceptor: (cb: any) => b.api.flux.intercept(cb) };
+        }
+    } catch {}
+    try {
+        const b: any = typeof bunny !== 'undefined' ? bunny : null;
+        const fdB = b?.metro?.common?.FluxDispatcher;
+        if (fdB && typeof fdB.addInterceptor === 'function') return fdB;
+    } catch {}
+    try {
+        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
+        const fdV = v?.metro?.common?.FluxDispatcher || v?.common?.FluxDispatcher;
+        if (fdV && typeof fdV.addInterceptor === 'function') return fdV;
+    } catch {}
+    return null;
+}
+
+// Metro finders, needed to locate the native chat row manager / channel
+// message caches. Tries the revenge API first, then bunny/vendetta.
+function getMetro(): any {
+    try {
+        const n: any = (typeof revenge !== 'undefined' && (revenge as any)?.metro) || null;
+        if (n) return n;
+    } catch {}
+    try {
+        const b: any = typeof bunny !== 'undefined' ? bunny : null;
+        if (b?.metro) return b.metro;
+    } catch {}
+    try {
+        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
+        if (v?.metro) return v.metro;
     } catch {}
     return null;
 }
@@ -279,6 +345,7 @@ function coerceSettings(raw: any): Settings {
         logDeletes: c.logDeletes !== false,
         logEdits: c.logEdits !== false,
         ghostPings: c.ghostPings !== false,
+        colorHighlights: c.colorHighlights !== false,
         ignoreBots: c.ignoreBots !== false,
         ignoreSelf: !!c.ignoreSelf,
         maxStored:
@@ -624,6 +691,7 @@ function handleCreate(payload: any) {
     if (!cfg.enabled) return;
     const message = payload?.message;
     if (!message?.id) return;
+    rememberForHighlight(payload);
     const channelId = String(message.channelId ?? message.channel_id ?? '');
     if (inList(channelId, cfg.ignoredChannels)) return;
     const snap = snapshotOf(message, currentUserId());
@@ -642,6 +710,10 @@ function handleDelete(payload: any) {
     const id = String(payload?.message?.id ?? payload?.id ?? '');
     const channelId = String(payload?.message?.channelId ?? payload?.channelId ?? '');
     if (!id || inList(channelId, cfg.ignoredChannels)) return;
+    // The rewrite interceptor calls this AND the per-event MESSAGE_DELETE
+    // handler can still see the original payload on some hosts — capture only
+    // the first time so ghost toasts never double-fire.
+    if (log[id]?.status === 'deleted') return;
     const snap =
         seen.get(id) ??
         snapshotOf(payload?.message ?? { id, channelId }, currentUserId());
@@ -682,6 +754,7 @@ function handleUpdate(payload: any) {
     if (!cfg.enabled || !cfg.logEdits) return;
     const message = payload?.message;
     if (!message?.id) return;
+    rememberForHighlight(payload);
     const id = String(message.id);
     const channelId = String(message.channelId ?? message.channel_id ?? '');
     if (inList(channelId, cfg.ignoredChannels)) return;
@@ -709,6 +782,373 @@ function handleUpdate(payload: any) {
     void persistLog();
 }
 
+// ---- In-chat highlighting (Vencord-style) ---------------------------------
+
+// A MESSAGE_CREATE/UPDATE we saw is the authoritative copy of the message —
+// remember it so the automod rewrite can restore content for messages the
+// store may already have evicted.
+function rememberForHighlight(payload: any) {
+    try {
+        const message = payload?.message;
+        if (!message?.id) return;
+        const channelId = String(message.channelId ?? message.channel_id ?? '');
+        const content = typeof message.content === 'string' ? message.content : '';
+        const author = message.author ?? {};
+        const rec = {
+            channelId,
+            timestamp: Date.now(),
+            content,
+            authorTag: author.global_name ?? author.username ?? 'Unknown',
+            bot: !!author.bot,
+        };
+        const isEdit = deletedMessageMap.has(String(message.id));
+        if (content) (isEdit ? highlightEdits : highlightCreates).set(String(message.id), rec);
+        if (isEdit) deletedMessageMap.delete(String(message.id));
+    } catch {}
+}
+
+function trimHighlightCache(map: Map<string, any>) {
+    if (map.size <= HIGHLIGHT_MAX) return;
+    const oldest = map.keys().next();
+    if (!oldest.done) map.delete(oldest.value);
+}
+
+function isSelfDelete(id: string) {
+    if (!manualDeletes.has(id)) return false;
+    manualDeletes.delete(id);
+    return true;
+}
+
+function markHighlightDeleted(id: string, channelId: string) {
+    deletedMessageMap.set(id, { channelId, timestamp: Date.now() });
+    trimHighlightCache(deletedMessageMap);
+}
+
+function markHighlightEdited(id: string, channelId: string) {
+    if (deletedMessageMap.has(id)) return;
+    editedMessageMap.set(id, { channelId, timestamp: Date.now() });
+    trimHighlightCache(editedMessageMap);
+}
+
+interface AutomodRecord {
+    content?: string;
+    authorTag?: string;
+    bot?: boolean;
+}
+
+// Memory cache of message content, used to rehydrate messages that were
+// already evicted from Discord's stores when they get deleted.
+const highlightCreates = new Map<string, AutomodRecord & { channelId: string; timestamp: number }>();
+const highlightEdits = new Map<string, AutomodRecord & { channelId: string; timestamp: number }>();
+
+function cachedRecordFor(id: string): AutomodRecord | undefined {
+    return highlightCreates.get(id) ?? highlightEdits.get(id);
+}
+
+function buildAutomodEvent(id: string, channelId: string, record?: AutomodRecord) {
+    return {
+        type: 'MESSAGE_EDIT_FAILED_AUTOMOD',
+        messageData: {
+            type: 1,
+            message: {
+                channelId,
+                messageId: id,
+            },
+        },
+        errorResponseBody: {
+            code: 200000,
+            message: record?.content || '(deleted)',
+        },
+    };
+}
+
+// The rewrite engine: intercept every dispatch *before* Discord's reducers
+// see it. MESSAGE_DELETE from someone else becomes MESSAGE_EDIT_FAILED_AUTOMOD,
+// which makes the native chat renderer keep the row with its content (what
+// Vencord's messageLogger does on desktop, and what Lucid proved works on
+// React Native).
+function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => void) {
+    if (!dispatcher || typeof dispatcher.addInterceptor !== 'function') return false;
+    // Bulk delete needs a real dispatch to re-emit per-id automod events;
+    // adapter hosts without one fall back to pass-through (log still records).
+    const dispatch = typeof dispatcher.dispatch === 'function' ? dispatcher.dispatch.bind(dispatcher) : null;
+    try {
+        const interceptor = (payload: any) => {
+            try {
+                const type = payload?.type;
+                if (type === 'MESSAGE_DELETE' && cfg.logDeletes) {
+                    const id = String(payload?.id ?? payload?.messageId ?? payload?.message?.id ?? '');
+                    const channelId = String(payload?.channelId ?? payload?.channel_id ?? payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
+                    if (!id || !channelId) return;
+                    if (isSelfDelete(id)) return;
+                    if (inList(channelId, cfg.ignoredChannels)) return;
+                    const record = cachedRecordFor(id);
+                    if (cfg.ignoreBots && record?.bot) return;
+                    const authorId = seen.get(id)?.authorId ?? log[id]?.authorId;
+                    if (cfg.ignoreSelf && authorId && authorId === currentUserId()) return;
+                    if (inList(authorId, cfg.ignoredUsers)) return;
+                    handleDelete(payload);
+                    markHighlightDeleted(id, channelId);
+                    return buildAutomodEvent(id, channelId, record);
+                }
+                if (type === 'MESSAGE_DELETE_BULK' && cfg.logDeletes) {
+                    const ids: string[] = Array.isArray(payload?.ids) ? payload.ids.map(String) : [];
+                    const channelId = String(payload?.channelId ?? payload?.channel_id ?? '');
+                    if (!ids.length || !channelId) return;
+                    const kept = ids.filter((id) => {
+                        if (isSelfDelete(id)) return false;
+                        if (inList(channelId, cfg.ignoredChannels)) return false;
+                        if (cfg.ignoreBots && cachedRecordFor(id)?.bot) return false;
+                        return true;
+                    });
+                    if (!kept.length) return;
+                    for (const id of kept) {
+                        markHighlightDeleted(id, channelId);
+                        handleDeleteBulk({ ids: [id], channelId });
+                    }
+                    if (dispatch) {
+                        // Block the bulk remove, then re-emit one automod event
+                        // per id so the native renderer keeps every row.
+                        setTimeout(() => {
+                            for (const id of kept) {
+                                try {
+                                    dispatch(buildAutomodEvent(id, channelId, cachedRecordFor(id)));
+                                } catch {}
+                            }
+                        }, 0);
+                        return false;
+                    }
+                    return;
+                }
+                if (type === 'MESSAGE_UPDATE') {
+                    const id = String(payload?.message?.id ?? '');
+                    const channelId = String(payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
+                    if (id && channelId && cfg.logEdits && !inList(channelId, cfg.ignoredChannels)) {
+                        markHighlightEdited(id, channelId);
+                    }
+                    return;
+                }
+            } catch (e) {
+                hostError('rewrite interceptor failed', e);
+            }
+            return;
+        };
+        const off = dispatcher.addInterceptor(interceptor);
+        addCleanup(typeof off === 'function' ? off : () => {
+            try {
+                const list = dispatcher._interceptors ?? dispatcher._dependencies;
+                if (Array.isArray(list)) {
+                    const i = list.indexOf(interceptor);
+                    if (i >= 0) list.splice(i, 1);
+                }
+            } catch {}
+        });
+        return true;
+    } catch (e) {
+        hostError('could not install delete rewrite', e);
+        return false;
+    }
+}
+
+// Row painting: Discord's native chat list builds rows through
+// DCDChatManager.updateRows (JSON payload) and RowManager.generate (row
+// objects). Deleted rows get red text + red gutter, edited rows an amber
+// gutter — matching Vencord's messageLogger styling.
+function paintDeletedRow(row: any, processColor: (c: any) => any) {
+    const msg = row?.message;
+    if (!msg?.id) return;
+    if (!deletedMessageMap.has(String(msg.id))) return;
+    msg.edited = '(deleted)';
+    const red = processColor('#f04747');
+    msg.textColor = red;
+    row.backgroundHighlight = {
+        backgroundColor: processColor('#f047471f'),
+        gutterColor: red,
+    };
+}
+
+function paintEditedRow(row: any, processColor: (c: any) => any) {
+    const msg = row?.message;
+    if (!msg?.id) return;
+    if (!editedMessageMap.has(String(msg.id))) return;
+    row.backgroundHighlight = {
+        backgroundColor: processColor('#faa61a18'),
+        gutterColor: processColor('#faa61a'),
+    };
+}
+
+let rowPaintersInstalled = 0;
+
+function installRowPainters(addCleanup: (off: () => void) => void) {
+    const React = getReact();
+    const RN = getRN();
+    const processColor = RN?.processColor ?? ((c: string) => c);
+    if (!cfg.colorHighlights) {
+        rowPaintersInstalled = 0;
+        return;
+    }
+    let installed = 0;
+
+    const patchBefore = (target: any, method: string, fn: (args: any[]) => void): boolean => {
+        try {
+            const original = target?.[method];
+            if (typeof original !== 'function') return false;
+            target[method] = function (...args: any[]) {
+                    try {
+                        fn(args);
+                    } catch {}
+                    return original.apply(this, args);
+                };
+            addCleanup(() => {
+                try {
+                    target[method] = original;
+                } catch {}
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    const paintArgs = (args: any[]) => {
+        const raw = args[1];
+        if (!raw) return;
+        const handleRow = (row: any) => {
+            if (!row || row.type !== 1) return;
+            paintDeletedRow(row, processColor);
+            paintEditedRow(row, processColor);
+        };
+        if (typeof raw === 'string') {
+            try {
+                const rows = JSON.parse(raw);
+                if (Array.isArray(rows)) {
+                    let mutated = false;
+                    for (const row of rows) {
+                        if (row?.message?.id && (deletedMessageMap.has(String(row.message.id)) || editedMessageMap.has(String(row.message.id)))) {
+                            handleRow(row);
+                            mutated = true;
+                        }
+                    }
+                    if (mutated) args[1] = JSON.stringify(rows);
+                }
+            } catch {}
+        } else if (Array.isArray(raw)) {
+            for (const row of raw) handleRow(row);
+        } else if (Array.isArray(raw?.rows)) {
+            for (const row of raw.rows) handleRow(row);
+        }
+    };
+
+    void React;
+    const chatManager = RN?.NativeModules?.DCDChatManager;
+    if (chatManager && patchBefore(chatManager, 'updateRows', paintArgs)) installed++;
+
+    // The JS-side chat manager (same method, plain object export).
+    const metro = getMetro();
+    const jsChat = metro?.findByProps?.('updateRows', 'getConstants') ?? metro?.findByProps?.('updateRows');
+    if (jsChat && jsChat !== chatManager && patchBefore(jsChat, 'updateRows', paintArgs)) installed++;
+
+    // RowManager.prototype.generate (after-hook): the final row object.
+    let rowManager: any = null;
+    try {
+        rowManager = metro?.findByName?.('RowManager', false) ?? metro?.findByProps?.('RowManager')?.RowManager ?? null;
+    } catch {}
+    if (rowManager?.prototype?.generate) {
+        try {
+            const proto = rowManager.prototype;
+            const original = proto.generate;
+            proto.generate = function (...args: any[]) {
+                const row = original.apply(this, args);
+                try {
+                    const target = (row && row.row) || row;
+                    if (target?.message?.id) {
+                        paintDeletedRow(target, processColor);
+                        paintEditedRow(target, processColor);
+                    }
+                } catch {}
+                return row;
+            };
+            addCleanup(() => {
+                try {
+                    proto.generate = original;
+                } catch {}
+            });
+            installed++;
+        } catch {}
+    }
+
+    rowPaintersInstalled = installed;
+    hostLog('row painters installed: ' + installed);
+}
+
+// Self-delete bypass: when *you* delete a message through Discord's own
+// MessageActions, remember the id so the rewrite lets that MESSAGE_DELETE
+// through untouched (Vencord parity — your own deletes stay deleted).
+function installSelfDeleteBypass(addCleanup: (off: () => void) => void) {
+    try {
+        const metro = getMetro();
+        const actions = metro?.findByProps?.('deleteMessage', 'startEditMessage') ?? metro?.findByProps?.('deleteMessage');
+        const del = actions?.deleteMessage;
+        if (typeof del !== 'function') return false;
+        actions.deleteMessage = function (...args: any[]) {
+            try {
+                const id = String(args?.[1] ?? args?.[0] ?? '');
+                if (id) manualDeletes.add(id);
+            } catch {}
+            return del.apply(this, args);
+        };
+        addCleanup(() => {
+            try {
+                actions.deleteMessage = del;
+            } catch {}
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// ---- Theme helpers (log viewer readability) --------------------------------
+
+// Discord's semantic color tokens; falls back to hardcoded palette values.
+// resolveThemeMeta: discord's ThemeStore holds {theme: 'dark'|'light'}.
+function resolveThemeMeta(): 'dark' | 'light' {
+    try {
+        const metro = getMetro();
+        const themeStore =
+            metro?.findByStoreName?.('ThemeStore') ??
+            revenge?.discord?.flux?.Stores?.ThemeStore ??
+            null;
+        const theme = themeStore?.theme ?? themeStore?.getState?.()?.theme;
+        if (theme === 'light') return 'light';
+    } catch {}
+    return 'dark';
+}
+
+function viewerColors() {
+    const theme = resolveThemeMeta();
+    if (theme === 'light') {
+        return {
+            bg: 'rgba(0,0,0,0.04)',
+            text: '#060607',
+            sub: '#4e5058',
+            deleted: '#d83c3e',
+            deletedBg: 'rgba(216,60,62,0.10)',
+            edited: '#c28516',
+            editedBg: 'rgba(250,166,26,0.12)',
+        };
+    }
+    return {
+        bg: 'rgba(255,255,255,0.06)',
+        text: '#dbdee1',
+        sub: '#949ba4',
+        deleted: '#f23f43',
+        deletedBg: 'rgba(242,63,67,0.14)',
+        edited: '#faa61a',
+        editedBg: 'rgba(250,166,26,0.14)',
+    };
+}
+
 // ---- Settings viewer (React, no JSX) ---------------------------------------
 
 function makeSettingsComponent() {
@@ -731,8 +1171,8 @@ function makeSettingsComponent() {
                     alignItems: 'center',
                 },
             },
-            el(Text, { style: { flex: 1 } }, props.label),
-            el(Text, { style: { opacity: 0.7, marginLeft: 8 } }, props.value ? 'On' : 'Off'),
+            el(Text, { style: { flex: 1, color: viewerColors().text } }, props.label),
+            el(Text, { style: { color: viewerColors().sub, marginLeft: 8 } }, props.value ? 'On' : 'Off'),
         );
 
     function SwitchRow(props: any) {
@@ -746,10 +1186,11 @@ function makeSettingsComponent() {
         const design = getDesign();
         const Group = design?.TableRowGroup;
         if (Group) return el(Group, { title: props.title }, ...props.children);
+        const C = viewerColors();
         return el(
             View,
-            { style: { marginVertical: 8 } },
-            el(Text, { style: { fontWeight: 'bold', padding: 12 } }, props.title),
+            { style: { marginVertical: 8, backgroundColor: C.bg, borderRadius: 8, paddingVertical: 4 } },
+            el(Text, { style: { fontWeight: 'bold', padding: 12, paddingBottom: 4, color: C.sub, fontSize: 12 } }, props.title),
             ...props.children,
         );
     }
@@ -757,7 +1198,8 @@ function makeSettingsComponent() {
     const DText = (props: any) => {
         const design = getDesign();
         const T = design?.Text;
-        return el(T || Text, props, ...(Array.isArray(props?.children) ? props.children : [props?.children]));
+        const style = { color: viewerColors().text, ...(props?.style ?? {}) };
+        return el(T || Text, { ...props, style }, ...(Array.isArray(props?.children) ? props.children : [props?.children]));
     };
 
     return function SettingsComponent(props: any) {
@@ -765,6 +1207,7 @@ function makeSettingsComponent() {
         // the same component works on both.
         const api: any = props?.api ?? classicSettingsApi();
         const settings = api?.jsonStorage?.use?.() ?? cfg;
+        const C = viewerColors();
         const [entries, setEntries] = React.useState([]);
         const [filter, setFilter] = React.useState('all');
         const [query, setQuery] = React.useState('');
@@ -846,7 +1289,7 @@ function makeSettingsComponent() {
                 },
                 el(
                     Text,
-                    { style: { fontWeight: filter === key ? 'bold' : 'normal' } },
+                    { style: { fontWeight: filter === key ? 'bold' : 'normal', color: filter === key ? C.text : C.sub } },
                     label,
                 ),
             );
@@ -868,7 +1311,7 @@ function makeSettingsComponent() {
                 { title: 'Status' },
                 el(DText, null, 'Host: ' + (hostKind === 'next' ? 'Revenge (Next API)' : 'Classic / vendetta') + (storageKind ? ' · storage: ' + storageKind : '')),
                 el(DText, null, startedAt ? 'Running since ' + new Date(startedAt).toLocaleTimeString() : 'Not started — toggle the plugin off and on'),
-                el(DText, null, 'Flux handlers: ' + handlersRegistered + '/4'),
+                el(DText, null, 'Flux handlers: ' + handlersRegistered + '/4 · row painters: ' + rowPaintersInstalled),
                 lastStartError ? el(DText, null, 'Last error: ' + lastStartError) : null,
             ),
             el(
@@ -878,6 +1321,7 @@ function makeSettingsComponent() {
                 sw('logDeletes', 'Log deleted messages'),
                 sw('logEdits', 'Log edited messages'),
                 sw('ghostPings', 'Ghost ping toasts', 'Toast when a message mentioning you is deleted'),
+                sw('colorHighlights', 'Red highlight in chat', 'Deleted messages stay visible with red text (Vencord style)'),
                 sw('ignoreBots', 'Ignore bot messages'),
                 sw('ignoreSelf', 'Ignore your own messages'),
             ),
@@ -887,16 +1331,18 @@ function makeSettingsComponent() {
                 el(DText, null, 'Comma-separated channel IDs never get logged.'),
                 el(TextInput, {
                     placeholder: 'Channel IDs',
+                    placeholderTextColor: C.sub,
                     defaultValue: settings?.ignoredChannels ?? '',
                     onChangeText: (t: string) => api?.jsonStorage?.set?.({ ignoredChannels: t }),
-                    style: { padding: 8 },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 el(DText, null, 'Comma-separated user IDs never get logged.'),
                 el(TextInput, {
                     placeholder: 'User IDs',
+                    placeholderTextColor: C.sub,
                     defaultValue: settings?.ignoredUsers ?? '',
                     onChangeText: (t: string) => api?.jsonStorage?.set?.({ ignoredUsers: t }),
-                    style: { padding: 8 },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
             ),
             el(
@@ -905,31 +1351,44 @@ function makeSettingsComponent() {
                 el(View, { style: { flexDirection: 'row' } }, tab('all', 'All'), tab('deleted', 'Deleted'), tab('edited', 'Edited'), tab('ghost', 'Ghost pings')),
                 el(TextInput, {
                     placeholder: 'Search author or text…',
+                    placeholderTextColor: C.sub,
                     value: query,
                     onChangeText: setQuery,
-                    style: { padding: 8 },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 visible.length === 0
                     ? el(DText, null, 'Nothing logged yet. Deleted and edited messages will appear here.')
-                    : visible.slice(0, 50).map((m: LoggedMessage) =>
-                          el(
+                    : visible.slice(0, 50).map((m: LoggedMessage) => {
+                          const isDel = m.ghostPing || m.status === 'deleted';
+                          const statusColor = isDel ? C.deleted : C.edited;
+                          return el(
                               View,
-                              { key: m.id, style: { paddingVertical: 6 } },
+                              {
+                                  key: m.id,
+                                  style: {
+                                      borderLeftWidth: 3,
+                                      borderColor: statusColor,
+                                      backgroundColor: isDel ? C.deletedBg : C.editedBg,
+                                      borderRadius: 6,
+                                      padding: 10,
+                                      marginBottom: 8,
+                                  },
+                              },
                               el(
-                                  DText,
-                                  null,
+                                  Text,
+                                  { style: { color: statusColor, fontWeight: 'bold', fontSize: 12, marginBottom: 2 } },
                                   '[' + (m.ghostPing ? 'GHOST PING' : m.status === 'deleted' ? 'DELETED' : 'EDITED') + '] ' + m.authorTag + ' — ' + new Date(m.timestamp).toLocaleString(),
                               ),
-                              el(DText, null, m.content || '(no text content)'),
-                              m.attachments.length > 0 && el(DText, null, m.attachments.length + ' attachment(s) saved as links'),
-                              m.edits.length > 0 && el(DText, null, 'Previous versions: ' + m.edits.join('  |  ')),
+                              el(Text, { style: { color: C.text } }, m.content || '(no text content)'),
+                              m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + ' attachment(s) saved as links'),
+                              m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Previous versions: ' + m.edits.join('  |  ')),
                               el(
                                   Pressable,
                                   { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
-                                  el(Text, null, 'Delete entry'),
+                                  el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Delete entry'),
                               ),
-                          ),
-                      ),
+                          );
+                      }),
             ),
             el(
                 View,
@@ -937,17 +1396,17 @@ function makeSettingsComponent() {
                 el(
                     Pressable,
                     { onPress: () => void exportLog(), style: { padding: 12, alignItems: 'center' } },
-                    el(Text, { style: { fontWeight: 'bold' } }, 'Copy log JSON to clipboard'),
+                    el(Text, { style: { fontWeight: 'bold', color: C.text } }, 'Copy log JSON to clipboard'),
                 ),
                 el(
                     Pressable,
                     { onPress: () => void clearLog(), style: { padding: 12, alignItems: 'center' } },
-                    el(Text, { style: { fontWeight: 'bold' } }, 'Clear saved log'),
+                    el(Text, { style: { fontWeight: 'bold', color: C.deleted } }, 'Clear saved log'),
                 ),
                 el(
                     Pressable,
                     { onPress: () => void reload(), style: { padding: 12, alignItems: 'center' } },
-                    el(Text, null, 'Refresh list'),
+                    el(Text, { style: { color: C.sub } }, 'Refresh list'),
                 ),
             ),
         );
@@ -1040,6 +1499,11 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
 
     handlersRegistered = 0;
     registerFluxHandlers(flux, cleanup);
+    if (!installDeleteRewrite(getRawFluxDispatcher(), cleanup)) {
+        hostError('delete rewrite unavailable — deleted messages will not stay visible');
+    }
+    installRowPainters(cleanup);
+    installSelfDeleteBypass(cleanup);
 
     cleanup(() => {
         if (flushTimer) {
@@ -1057,7 +1521,7 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
     lastStartError = null;
     hostLog('started (Revenge Next)');
     toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
-    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Revenge (Next)\nFlux handlers: ' + handlersRegistered + '/4\nIf you can read this, the new build is running.');
+    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Revenge (Next)\nFlux handlers: ' + handlersRegistered + '/4\nRed highlights: ' + (rowPaintersInstalled + ' painter(s)') + '\nIf you can read this, the new build is running.');
 }
 
 async function startClassic() {
@@ -1112,12 +1576,17 @@ async function startClassic() {
 
     handlersRegistered = 0;
     registerFluxHandlers(flux, (off) => classicDisposers.push(off));
+    if (!installDeleteRewrite(getRawFluxDispatcher(), (off) => classicDisposers.push(off))) {
+        hostError('delete rewrite unavailable — deleted messages will not stay visible');
+    }
+    installRowPainters((off) => classicDisposers.push(off));
+    installSelfDeleteBypass((off) => classicDisposers.push(off));
 
     startedAt = Date.now();
     lastStartError = null;
     hostLog('started (Revenge Classic / vendetta host)');
     toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
-    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Classic / vendetta\nStorage: ' + (storageKind ?? 'none') + '\nFlux handlers: ' + handlersRegistered + '/4\nIf you can read this, the new build is running.');
+    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Classic / vendetta\nStorage: ' + (storageKind ?? 'none') + '\nFlux handlers: ' + handlersRegistered + '/4\nRed highlights: ' + (rowPaintersInstalled + ' painter(s)') + '\nIf you can read this, the new build is running.');
 }
 
 // ---- Plugin definition ----------------------------------------------------
@@ -1176,6 +1645,12 @@ let __instance: any = {
                 classicDisposers.pop()?.();
             } catch {}
         }
+        deletedMessageMap.clear();
+        editedMessageMap.clear();
+        highlightCreates.clear();
+        highlightEdits.clear();
+        manualDeletes.clear();
+        rowPaintersInstalled = 0;
         handlersRegistered = 0;
         startedAt = null;
     },

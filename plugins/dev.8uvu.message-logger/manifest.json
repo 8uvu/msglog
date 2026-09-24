@@ -2,15 +2,15 @@
     "format": 1,
     "id": "dev.8uvu.message-logger",
     "name": "MessageLogger",
-    "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
+    "description": "Keeps deleted and edited messages visible in chat with Vencord-style red/amber highlights, saves a persistent log, flags ghost pings, and ships a searchable viewer.",
     "author": "8uvu",
     "main": "index.js",
     "display": {
         "name": "MessageLogger",
-        "description": "Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with export.",
+        "description": "Keeps deleted and edited messages visible in chat with Vencord-style red/amber highlights, saves a persistent log, flags ghost pings, and ships a searchable viewer.",
         "authors": [{ "name": "8uvu" }]
     },
-    "version": "1.1.5",
+    "version": "1.2.0",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }
