@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.5.1";
+var PLUGIN_VERSION = "1.6.0";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -36,6 +36,9 @@ var DEFAULT_SETTINGS = {
   enabled: true,
   logDeletes: true,
   logEdits: true,
+  restoreDeletedInChat: true,
+  keepSelfDeletes: true,
+  deletedInfo: true,
   inlineEdits: true,
   ghostPings: true,
   colorHighlights: true,
@@ -307,6 +310,9 @@ function coerceSettings(raw) {
     enabled: c.enabled !== false,
     logDeletes: c.logDeletes !== false,
     logEdits: c.logEdits !== false,
+    restoreDeletedInChat: c.restoreDeletedInChat !== false,
+    keepSelfDeletes: c.keepSelfDeletes !== false,
+    deletedInfo: c.deletedInfo !== false,
     ghostPings: c.ghostPings !== false,
     colorHighlights: c.colorHighlights !== false,
     inlineEdits: c.inlineEdits !== false,
@@ -1151,6 +1157,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
           const channelId = String((_j = (_i = (_g = (_e = payload == null ? void 0 : payload.channelId) != null ? _e : payload == null ? void 0 : payload.channel_id) != null ? _g : (_f = payload == null ? void 0 : payload.message) == null ? void 0 : _f.channelId) != null ? _i : (_h = payload == null ? void 0 : payload.message) == null ? void 0 : _h.channel_id) != null ? _j : "");
           if (!id || !channelId) return;
           if (isSelfDelete(id)) {
+            if (!cfg.keepSelfDeletes) return void 0;
           }
           if (inList(channelId, cfg.ignoredChannels)) return;
           const record = cachedRecordFor(id);
@@ -1223,7 +1230,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
   }
 }
 function paintRow(row, processColor) {
-  var _a, _b;
+  var _a, _b, _c;
   const msg = row == null ? void 0 : row.message;
   if (!(msg == null ? void 0 : msg.id)) return;
   const id = String(msg.id);
@@ -1232,6 +1239,12 @@ function paintRow(row, processColor) {
   if (!isDel && !isEd) return;
   if (isDel) {
     msg.edited = "(deleted)";
+    if (cfg.deletedInfo) {
+      const entry = log[id];
+      const who = (entry == null ? void 0 : entry.authorTag) ? " by " + entry.authorTag : "";
+      const when = (entry == null ? void 0 : entry.timestamp) ? " at " + new Date(entry.timestamp).toLocaleString() : "";
+      msg.content = String((_a = msg.content) != null ? _a : "") + "\n[deleted" + who + when + "]";
+    }
     const red = processColor("#f04747");
     msg.textColor = red;
     row.backgroundHighlight = {
@@ -1245,7 +1258,7 @@ function paintRow(row, processColor) {
     };
   }
   if (cfg.inlineEdits && !row.__mlPainted && typeof msg.content === "string") {
-    const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
+    const history = (_c = (_b = log[id]) == null ? void 0 : _b.edits) != null ? _c : [];
     if (history.length) {
       msg.content = msg.content + "\n" + history.map((h) => "(edited) " + String(h)).join("\n");
     }
@@ -1600,7 +1613,7 @@ function makeSettingsComponent() {
         { title: "Status" },
         el(DText, null, "Host: " + (hostKind === "next" ? "Revenge (Next API)" : "Classic / vendetta") + (storageKind ? " \xB7 storage: " + storageKind : "")),
         el(DText, null, startedAt ? "Running since " + new Date(startedAt).toLocaleTimeString() : "Not started \u2014 toggle the plugin off and on"),
-        el(DText, null, "Flux handlers: " + handlersRegistered + "/4 \xB7 row painters: " + rowPaintersInstalled),
+        el(DText, null, "Flux handlers: " + handlersRegistered + "/5 \xB7 row painters: " + rowPaintersInstalled),
         lastStartError ? el(DText, null, "Last error: " + lastStartError) : null
       ),
       el(
@@ -1608,6 +1621,9 @@ function makeSettingsComponent() {
         { title: "MessageLogger" },
         sw("enabled", "Enabled"),
         sw("logDeletes", "Log deleted messages"),
+        sw("restoreDeletedInChat", "Restore deleted in chat", "Re-inject logged deleted messages when you open their channel"),
+        sw("keepSelfDeletes", "Keep my own deletes visible", "Off: your own deleted messages vanish like normal"),
+        sw("deletedInfo", "Show deleted info", 'Red rows show "[deleted by X at \u2026]"'),
         sw("logEdits", "Log edited messages"),
         sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
         sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
@@ -1895,6 +1911,100 @@ function registerFluxHandlers(flux, addCleanup) {
   register("MESSAGE_DELETE", handleDelete);
   register("MESSAGE_DELETE_BULK", handleDeleteBulk);
   register("MESSAGE_UPDATE", handleUpdate);
+  register("CHANNEL_SELECT", handleChannelSelect);
+}
+var lastInjectedChannel = "";
+var lastInjectedAt = 0;
+function handleChannelSelect(payload) {
+  var _a;
+  if (!cfg.enabled || !cfg.restoreDeletedInChat) return;
+  const channelId = String((_a = payload == null ? void 0 : payload.channelId) != null ? _a : "");
+  if (!channelId) return;
+  const now = Date.now();
+  if (channelId === lastInjectedChannel && now - lastInjectedAt < 1500) return;
+  lastInjectedChannel = channelId;
+  lastInjectedAt = now;
+  setTimeout(() => void reinjectChannel(channelId), 350);
+}
+async function reinjectChannel(channelId) {
+  var _a, _b;
+  try {
+    let dispatch = null;
+    const raw = getRawFluxDispatcher();
+    if (typeof (raw == null ? void 0 : raw.dispatch) === "function") dispatch = raw.dispatch.bind(raw);
+    if (!dispatch) {
+      try {
+        const metro = getMetro();
+        const rd = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "dispatch", "subscribe");
+        if (typeof (rd == null ? void 0 : rd.dispatch) === "function") dispatch = rd.dispatch.bind(rd);
+      } catch {
+      }
+    }
+    if (!dispatch) {
+      hostError("no raw dispatcher available for re-injection");
+      return;
+    }
+    const entries = Object.values(log).filter(
+      (m) => m.status === "deleted" && m.channelId === channelId
+    );
+    if (!entries.length) return;
+    const alreadyIn = getMessageIdsInChannel(channelId);
+    let injected = 0;
+    for (const entry of entries) {
+      if (alreadyIn.has(entry.id)) continue;
+      dispatch({
+        type: "MESSAGE_CREATE",
+        message: {
+          id: entry.id,
+          channel_id: channelId,
+          content: entry.content,
+          timestamp: new Date(entry.timestamp).toISOString(),
+          author: { id: entry.authorId, username: entry.authorTag, bot: !!entry.bot },
+          attachments: ((_b = entry.attachments) != null ? _b : []).map((u) => ({ url: u, proxy_url: u })),
+          mentions: [],
+          mention_everyone: false,
+          mention_roles: [],
+          pinned: false,
+          tts: false,
+          type: 0
+        },
+        optimisticallyPerformed: true,
+        mlReinjected: true
+      });
+      markHighlightDeleted(entry.id, channelId);
+      injected++;
+    }
+    if (injected > 0) hostLog("re-injected " + injected + " deleted message(s) into channel " + channelId);
+  } catch (e) {
+    hostError("channel re-injection failed", e);
+  }
+}
+function getMessageIdsInChannel(channelId) {
+  var _a, _b;
+  const ids = /* @__PURE__ */ new Set();
+  try {
+    const store = getMessageStore();
+    const messages = (_a = store == null ? void 0 : store.getMessages) == null ? void 0 : _a.call(store, channelId);
+    const arr = typeof (messages == null ? void 0 : messages.array) === "function" ? messages.array() : (_b = messages == null ? void 0 : messages._array) != null ? _b : [];
+    for (const m of arr) if (m == null ? void 0 : m.id) ids.add(String(m.id));
+  } catch {
+  }
+  return ids;
+}
+function getMessageStore() {
+  var _a, _b, _c, _d, _e, _f;
+  try {
+    const s = typeof revenge !== "undefined" && ((_c = (_b = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores) == null ? void 0 : _c.MessageStore) || null;
+    if (s) return s;
+  } catch {
+  }
+  try {
+    const metro = getMetro();
+    const s = (_f = (_d = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _d.call(metro, "MessageStore")) != null ? _f : (_e = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _e.call(metro, "getMessage", "getMessages");
+    if (s) return s;
+  } catch {
+  }
+  return null;
 }
 async function startNext({ cleanup, jsonStorage, logger }) {
   apiRef = { logger };
