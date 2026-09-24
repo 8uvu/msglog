@@ -13,7 +13,7 @@
             "versions": {
                 "1.0.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.2.zip",
-                    "sha256": "513e471b28f7d54c695d08d6e7c40042d32abf57d815d53daf78ba688aed0196",
+                    "sha256": "da2474e5576074991038692789417bec0123cb4d3205b7c9d23e4cf6981eb8a4",
                     "size": 5752,
                     "dependencies": {
                         "revenge.api": {
@@ -36,7 +36,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.host-probe@1.0.0.zip",
-                    "sha256": "6516e9b4195bd6b8d39b883d98a40f6977bc4412646adf9a39efe7c8f4e13e38",
+                    "sha256": "4fc4db9cfc646165a8a16562bbf9caabfe324d399231ef5847c6f74ed2d4a4f0",
                     "size": 3531,
                     "dependencies": {
                         "revenge.api": {
@@ -51,16 +51,16 @@
         },
         "dev.8uvu.message-logger": {
             "name": "MessageLogger",
-            "description": "by 8uvu aka Epitaph — keeps deleted and edited messages visible in chat with Vencord-style red/amber highlights, saves a persistent log and images to device storage, flags ghost pings, and ships a searchable viewer.",
+            "description": "Message logger that logs deleted/edited with a red highlight",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.4.1"
+                "latest": "1.4.2"
             },
             "versions": {
-                "1.4.1": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.4.1.zip",
-                    "sha256": "0c09e29b84cbffd0319da543f945388ebae377b9f21dc50b5c0be5acb9ef1b49",
-                    "size": 16966,
+                "1.4.2": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.4.2.zip",
+                    "sha256": "7a5e2463c7801f16ce1bce6cb6fd469aa13195466001fb12dc804683d3ff8239",
+                    "size": 16854,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
@@ -82,7 +82,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.quick-check@1.0.0.zip",
-                    "sha256": "00072bdaac7927a4d9d5818db8e20531661a7147f551e0512a8d581449f84122",
+                    "sha256": "383356de2a9f9bb55d2eb4f7bdee3d3475bcb2919221a0eb33a902f703412100",
                     "size": 2870,
                     "dependencies": {
                         "revenge.api": {

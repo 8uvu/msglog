@@ -2,19 +2,19 @@
     "format": 1,
     "id": "dev.8uvu.message-logger",
     "name": "MessageLogger",
-    "description": "by 8uvu aka Epitaph — keeps deleted and edited messages visible in chat with Vencord-style red/amber highlights, saves a persistent log and images to device storage, flags ghost pings, and ships a searchable viewer.",
+    "description": "Message logger that logs deleted/edited with a red highlight",
     "author": "8uvu aka Epitaph",
     "main": "index.js",
     "display": {
         "name": "MessageLogger",
-        "description": "by 8uvu aka Epitaph — keeps deleted and edited messages visible in chat with Vencord-style red/amber highlights, saves a persistent log and images to device storage, flags ghost pings, and ships a searchable viewer.",
+        "description": "Message logger that logs deleted/edited with a red highlight",
         "authors": [
             {
                 "name": "8uvu aka Epitaph"
             }
         ]
     },
-    "version": "1.4.1",
+    "version": "1.4.2",
     "dependencies": {
         "revenge.api": {
             "version": ">=1"
@@ -26,7 +26,7 @@
     "dist": {
         "script": "index.js"
     },
-    "hash": "decaa0aa636cc7a257728d1502cca6c351ab916bd20e27e646acb7db4a4b9164",
+    "hash": "e7f7a91440ed4884ac68091d3555b1f7a187ee67f7c10190b2814daddb66b7e9",
     "authors": [
         {
             "name": "8uvu aka Epitaph"

@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.4.1";
+var PLUGIN_VERSION = "1.4.2";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -1535,178 +1535,174 @@ function makeSettingsComponent() {
       }
     });
     return el(
-      View,
-      null,
+      ScrollView,
+      { style: { flexGrow: 1 } },
       el(
-        ScrollView,
-        { style: { flex: 1 } },
-        el(
-          RowGroup,
-          { title: "Status" },
-          el(DText, null, "Host: " + (hostKind === "next" ? "Revenge (Next API)" : "Classic / vendetta") + (storageKind ? " \xB7 storage: " + storageKind : "")),
-          el(DText, null, startedAt ? "Running since " + new Date(startedAt).toLocaleTimeString() : "Not started \u2014 toggle the plugin off and on"),
-          el(DText, null, "Flux handlers: " + handlersRegistered + "/4 \xB7 row painters: " + rowPaintersInstalled),
-          lastStartError ? el(DText, null, "Last error: " + lastStartError) : null
-        ),
-        el(
-          RowGroup,
-          { title: "MessageLogger" },
-          sw("enabled", "Enabled"),
-          sw("logDeletes", "Log deleted messages"),
-          sw("logEdits", "Log edited messages"),
-          sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
-          sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
-          sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
-          el(DText, null, "Attachment size limit (MB) \u2014 larger files are not saved."),
-          el(TextInput, {
-            placeholder: "100",
-            placeholderTextColor: C.sub,
-            defaultValue: String((_e = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _e : 100),
-            onChangeText: (t) => {
-              var _a2, _b2;
-              const n = parseFloat(t);
-              if (!isNaN(n) && n >= 1 && n <= 1024) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentSizeLimitMB: n });
+        RowGroup,
+        { title: "Status" },
+        el(DText, null, "Host: " + (hostKind === "next" ? "Revenge (Next API)" : "Classic / vendetta") + (storageKind ? " \xB7 storage: " + storageKind : "")),
+        el(DText, null, startedAt ? "Running since " + new Date(startedAt).toLocaleTimeString() : "Not started \u2014 toggle the plugin off and on"),
+        el(DText, null, "Flux handlers: " + handlersRegistered + "/4 \xB7 row painters: " + rowPaintersInstalled),
+        lastStartError ? el(DText, null, "Last error: " + lastStartError) : null
+      ),
+      el(
+        RowGroup,
+        { title: "MessageLogger" },
+        sw("enabled", "Enabled"),
+        sw("logDeletes", "Log deleted messages"),
+        sw("logEdits", "Log edited messages"),
+        sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
+        sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
+        sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
+        el(DText, null, "Attachment size limit (MB) \u2014 larger files are not saved."),
+        el(TextInput, {
+          placeholder: "100",
+          placeholderTextColor: C.sub,
+          defaultValue: String((_e = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _e : 100),
+          onChangeText: (t) => {
+            var _a2, _b2;
+            const n = parseFloat(t);
+            if (!isNaN(n) && n >= 1 && n <= 1024) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentSizeLimitMB: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Attachment file extensions \u2014 comma-separated allowlist."),
+        el(TextInput, {
+          placeholder: "png,jpg,jpeg,gif,webp",
+          placeholderTextColor: C.sub,
+          defaultValue: (_f = settings == null ? void 0 : settings.attachmentExtensions) != null ? _f : "png,jpg,jpeg,gif,webp",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentExtensions: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Image storage quota (GB)"),
+        el(TextInput, {
+          placeholder: "2",
+          placeholderTextColor: C.sub,
+          defaultValue: String((_g = settings == null ? void 0 : settings.imageQuotaGB) != null ? _g : 2),
+          onChangeText: (t) => {
+            var _a2, _b2;
+            const n = parseFloat(t);
+            if (!isNaN(n) && n >= 0.1 && n <= 100) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { imageQuotaGB: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Used: " + (totalSavedBytes() / 1073741824).toFixed(2) + " GB \xB7 " + Object.keys(imageIndex).length + " messages with saved images"),
+        sw("ignoreBots", "Ignore bot messages"),
+        sw("ignoreWebhooks", "Ignore webhooks"),
+        sw("ignoreSelf", "Ignore your own messages"),
+        sw("ignoreSelfEdits", "Ignore your own edits"),
+        sw("inlineEdits", "Inline edit history", "Show previous versions inside the message (Equicord Inline Edits)")
+      ),
+      el(
+        RowGroup,
+        { title: "Filters" },
+        el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel IDs always logged, overriding ignores."),
+        el(TextInput, {
+          placeholder: "e.g. 123456789012345678",
+          placeholderTextColor: C.sub,
+          defaultValue: (_h = settings == null ? void 0 : settings.whitelistedIds) != null ? _h : "",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { whitelistedIds: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Ignored guilds \u2014 comma-separated server IDs never logged."),
+        el(TextInput, {
+          placeholder: "Server IDs",
+          placeholderTextColor: C.sub,
+          defaultValue: (_i = settings == null ? void 0 : settings.ignoredGuilds) != null ? _i : "",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredGuilds: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Time-based cleanup \u2014 remove entries older than this many minutes (0 = off)."),
+        el(TextInput, {
+          placeholder: "0",
+          placeholderTextColor: C.sub,
+          defaultValue: String((_j = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _j : 0),
+          onChangeText: (t) => {
+            var _a2, _b2;
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n >= 0) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { timeBasedCleanupMinutes: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        })
+      ),
+      el(
+        RowGroup,
+        { title: "Ignored IDs" },
+        el(DText, null, "Comma-separated channel IDs never get logged."),
+        el(TextInput, {
+          placeholder: "Channel IDs",
+          placeholderTextColor: C.sub,
+          defaultValue: (_k = settings == null ? void 0 : settings.ignoredChannels) != null ? _k : "",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Comma-separated user IDs never get logged."),
+        el(TextInput, {
+          placeholder: "User IDs",
+          placeholderTextColor: C.sub,
+          defaultValue: (_l = settings == null ? void 0 : settings.ignoredUsers) != null ? _l : "",
+          onChangeText: (t) => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        })
+      ),
+      el(
+        RowGroup,
+        { title: "Saved log (" + visible.length + " shown)" },
+        el(View, { style: { flexDirection: "row" } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
+        el(TextInput, {
+          placeholder: "Search author or text\u2026",
+          placeholderTextColor: C.sub,
+          value: query,
+          onChangeText: setQuery,
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 200).map((m) => {
+          const isDel = m.ghostPing || m.status === "deleted";
+          const statusColor = isDel ? C.deleted : C.edited;
+          return el(
+            View,
+            {
+              key: m.id,
+              style: {
+                borderLeftWidth: 3,
+                borderColor: statusColor,
+                backgroundColor: isDel ? C.deletedBg : C.editedBg,
+                borderRadius: 6,
+                padding: 10,
+                marginBottom: 8
+              }
             },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          el(DText, null, "Attachment file extensions \u2014 comma-separated allowlist."),
-          el(TextInput, {
-            placeholder: "png,jpg,jpeg,gif,webp",
-            placeholderTextColor: C.sub,
-            defaultValue: (_f = settings == null ? void 0 : settings.attachmentExtensions) != null ? _f : "png,jpg,jpeg,gif,webp",
-            onChangeText: (t) => {
-              var _a2, _b2;
-              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentExtensions: t });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          el(DText, null, "Image storage quota (GB)"),
-          el(TextInput, {
-            placeholder: "2",
-            placeholderTextColor: C.sub,
-            defaultValue: String((_g = settings == null ? void 0 : settings.imageQuotaGB) != null ? _g : 2),
-            onChangeText: (t) => {
-              var _a2, _b2;
-              const n = parseFloat(t);
-              if (!isNaN(n) && n >= 0.1 && n <= 100) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { imageQuotaGB: n });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          el(DText, null, "Used: " + (totalSavedBytes() / 1073741824).toFixed(2) + " GB \xB7 " + Object.keys(imageIndex).length + " messages with saved images"),
-          sw("ignoreBots", "Ignore bot messages"),
-          sw("ignoreWebhooks", "Ignore webhooks"),
-          sw("ignoreSelf", "Ignore your own messages"),
-          sw("ignoreSelfEdits", "Ignore your own edits"),
-          sw("inlineEdits", "Inline edit history", "Show previous versions inside the message (Equicord Inline Edits)")
-        ),
-        el(
-          RowGroup,
-          { title: "Filters" },
-          el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel IDs always logged, overriding ignores."),
-          el(TextInput, {
-            placeholder: "e.g. 123456789012345678",
-            placeholderTextColor: C.sub,
-            defaultValue: (_h = settings == null ? void 0 : settings.whitelistedIds) != null ? _h : "",
-            onChangeText: (t) => {
-              var _a2, _b2;
-              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { whitelistedIds: t });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          el(DText, null, "Ignored guilds \u2014 comma-separated server IDs never logged."),
-          el(TextInput, {
-            placeholder: "Server IDs",
-            placeholderTextColor: C.sub,
-            defaultValue: (_i = settings == null ? void 0 : settings.ignoredGuilds) != null ? _i : "",
-            onChangeText: (t) => {
-              var _a2, _b2;
-              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredGuilds: t });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          el(DText, null, "Time-based cleanup \u2014 remove entries older than this many minutes (0 = off)."),
-          el(TextInput, {
-            placeholder: "0",
-            placeholderTextColor: C.sub,
-            defaultValue: String((_j = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _j : 0),
-            onChangeText: (t) => {
-              var _a2, _b2;
-              const n = parseInt(t, 10);
-              if (!isNaN(n) && n >= 0) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { timeBasedCleanupMinutes: n });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          })
-        ),
-        el(
-          RowGroup,
-          { title: "Ignored IDs" },
-          el(DText, null, "Comma-separated channel IDs never get logged."),
-          el(TextInput, {
-            placeholder: "Channel IDs",
-            placeholderTextColor: C.sub,
-            defaultValue: (_k = settings == null ? void 0 : settings.ignoredChannels) != null ? _k : "",
-            onChangeText: (t) => {
-              var _a2, _b2;
-              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          el(DText, null, "Comma-separated user IDs never get logged."),
-          el(TextInput, {
-            placeholder: "User IDs",
-            placeholderTextColor: C.sub,
-            defaultValue: (_l = settings == null ? void 0 : settings.ignoredUsers) != null ? _l : "",
-            onChangeText: (t) => {
-              var _a2, _b2;
-              return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
-            },
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          })
-        ),
-        el(
-          RowGroup,
-          { title: "Saved log (" + visible.length + " shown)" },
-          el(View, { style: { flexDirection: "row" } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
-          el(TextInput, {
-            placeholder: "Search author or text\u2026",
-            placeholderTextColor: C.sub,
-            value: query,
-            onChangeText: setQuery,
-            style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
-          }),
-          visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 200).map((m) => {
-            const isDel = m.ghostPing || m.status === "deleted";
-            const statusColor = isDel ? C.deleted : C.edited;
-            return el(
-              View,
-              {
-                key: m.id,
-                style: {
-                  borderLeftWidth: 3,
-                  borderColor: statusColor,
-                  backgroundColor: isDel ? C.deletedBg : C.editedBg,
-                  borderRadius: 6,
-                  padding: 10,
-                  marginBottom: 8
-                }
-              },
-              el(
-                Text,
-                { style: { color: statusColor, fontWeight: "bold", fontSize: 12, marginBottom: 2 } },
-                "[" + (m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED") + "] " + m.authorTag + " \u2014 " + new Date(m.timestamp).toLocaleString()
-              ),
-              el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
-              m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " attachment(s) saved as links"),
-              m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + " image(s) saved to device") : null,
-              m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
-              el(
-                Pressable,
-                { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
-                el(Text, { style: { color: C.sub, fontSize: 12 } }, "Delete entry")
-              )
-            );
-          })
-        )
+            el(
+              Text,
+              { style: { color: statusColor, fontWeight: "bold", fontSize: 12, marginBottom: 2 } },
+              "[" + (m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED") + "] " + m.authorTag + " \u2014 " + new Date(m.timestamp).toLocaleString()
+            ),
+            el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
+            m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " attachment(s) saved as links"),
+            m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + " image(s) saved to device") : null,
+            m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
+            el(
+              Pressable,
+              { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
+              el(Text, { style: { color: C.sub, fontSize: 12 } }, "Delete entry")
+            )
+          );
+        })
       ),
       el(
         View,
