@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.4.2";
+var PLUGIN_VERSION = "1.4.3";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -1114,7 +1114,8 @@ function installDeleteRewrite(dispatcher, addCleanup) {
           const id = String((_d = (_c = (_a = payload == null ? void 0 : payload.id) != null ? _a : payload == null ? void 0 : payload.messageId) != null ? _c : (_b = payload == null ? void 0 : payload.message) == null ? void 0 : _b.id) != null ? _d : "");
           const channelId = String((_j = (_i = (_g = (_e = payload == null ? void 0 : payload.channelId) != null ? _e : payload == null ? void 0 : payload.channel_id) != null ? _g : (_f = payload == null ? void 0 : payload.message) == null ? void 0 : _f.channelId) != null ? _i : (_h = payload == null ? void 0 : payload.message) == null ? void 0 : _h.channel_id) != null ? _j : "");
           if (!id || !channelId) return;
-          if (isSelfDelete(id)) return;
+          if (isSelfDelete(id)) {
+          }
           if (inList(channelId, cfg.ignoredChannels)) return;
           const record = cachedRecordFor(id);
           if (cfg.ignoreBots && (record == null ? void 0 : record.bot)) return;
@@ -1186,7 +1187,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
   }
 }
 function paintRow(row, processColor) {
-  var _a, _b, _c;
+  var _a, _b;
   const msg = row == null ? void 0 : row.message;
   if (!(msg == null ? void 0 : msg.id)) return;
   const id = String(msg.id);
@@ -1207,11 +1208,12 @@ function paintRow(row, processColor) {
       gutterColor: processColor("#faa61a")
     };
   }
-  if (cfg.inlineEdits) {
+  if (cfg.inlineEdits && !row.__mlPainted && typeof msg.content === "string") {
     const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
     if (history.length) {
-      msg.content = String((_c = msg.content) != null ? _c : "") + "\n" + history.map((h) => "(edited) " + h).join("\n");
+      msg.content = msg.content + "\n" + history.map((h) => "(edited) " + String(h)).join("\n");
     }
+    row.__mlPainted = true;
   }
 }
 var rowPaintersInstalled = 0;
@@ -1359,6 +1361,7 @@ function viewerColors() {
   if (theme === "light") {
     return {
       bg: "rgba(0,0,0,0.04)",
+      card: "rgba(0,0,0,0.05)",
       text: "#060607",
       sub: "#4e5058",
       deleted: "#d83c3e",
@@ -1369,6 +1372,7 @@ function viewerColors() {
   }
   return {
     bg: "rgba(255,255,255,0.06)",
+    card: "rgba(255,255,255,0.08)",
     text: "#dbdee1",
     sub: "#949ba4",
     deleted: "#f23f43",
@@ -1382,38 +1386,42 @@ function makeSettingsComponent() {
   if (!React) return () => null;
   const el = React.createElement.bind(React);
   const RN = getRN() || {};
-  const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View } = RN;
-  const SwitchRowFallback = (props) => el(
-    Pressable,
-    {
-      onPress: () => props.onValueChange(!props.value),
-      style: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        paddingVertical: 12,
-        paddingHorizontal: 16,
-        alignItems: "center"
-      }
-    },
-    el(Text, { style: { flex: 1, color: viewerColors().text } }, props.label),
-    el(Text, { style: { color: viewerColors().sub, marginLeft: 8 } }, props.value ? "On" : "Off")
-  );
+  const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null } = RN;
   function SwitchRow(props) {
-    const design = getDesign();
-    const Row = design == null ? void 0 : design.TableSwitchRow;
-    if (Row) return el(Row, props, null);
-    return el(SwitchRowFallback, props, null);
-  }
-  function RowGroup(props) {
-    const design = getDesign();
-    const Group = design == null ? void 0 : design.TableRowGroup;
-    if (Group) return el(Group, { title: props.title }, ...props.children);
-    const C = viewerColors();
+    const c = viewerColors();
+    const toggle = Switch ? el(Switch, {
+      value: !!props.value,
+      onValueChange: props.onValueChange,
+      trackColor: { false: "rgba(128,128,128,0.35)", true: "#5865F2" },
+      thumbColor: "#ffffff"
+    }) : el(
+      Text,
+      { style: { color: c.sub }, onPress: () => props.onValueChange(!props.value) },
+      props.value ? "On" : "Off"
+    );
     return el(
       View,
-      { style: { marginVertical: 8, backgroundColor: C.bg, borderRadius: 8, paddingVertical: 4 } },
-      el(Text, { style: { fontWeight: "bold", padding: 12, paddingBottom: 4, color: C.sub, fontSize: 12 } }, props.title),
-      ...props.children
+      { style: { paddingHorizontal: 16, paddingVertical: 10 } },
+      el(
+        View,
+        { style: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" } },
+        el(Text, { style: { color: c.text, fontSize: 16, flex: 1, paddingRight: 12 } }, props.label),
+        toggle
+      ),
+      props.subLabel ? el(Text, { style: { color: c.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null
+    );
+  }
+  function RowGroup(props) {
+    const c = viewerColors();
+    return el(
+      View,
+      { style: { marginTop: 16 } },
+      el(Text, { style: { color: c.text, fontSize: 15, fontWeight: "600", paddingHorizontal: 16, marginBottom: 6 } }, props.title),
+      el(
+        View,
+        { style: { backgroundColor: c.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } },
+        ...props.children
+      )
     );
   }
   const DText = (props) => {
