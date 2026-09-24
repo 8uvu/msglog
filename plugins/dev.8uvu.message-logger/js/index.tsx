@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.2.1';
+const PLUGIN_VERSION = '1.3.0';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -52,6 +52,8 @@ interface Settings {
     colorHighlights: boolean;
     ignoreBots: boolean;
     ignoreSelf: boolean;
+    saveImages: boolean;
+    imageQuotaGB: number;
     maxStored: number;
     ignoredChannels: string;
     ignoredUsers: string;
@@ -69,6 +71,7 @@ interface LoggedMessage {
     edits: string[];
     mentionsMe: boolean;
     ghostPing: boolean;
+    savedImages?: number;
     bot?: boolean;
 }
 
@@ -82,6 +85,8 @@ const DEFAULT_SETTINGS: Settings = {
     colorHighlights: true,
     ignoreBots: true,
     ignoreSelf: false,
+    saveImages: true,
+    imageQuotaGB: 2,
     maxStored: 300,
     ignoredChannels: '',
     ignoredUsers: '',
@@ -346,6 +351,11 @@ function coerceSettings(raw: any): Settings {
         logEdits: c.logEdits !== false,
         ghostPings: c.ghostPings !== false,
         colorHighlights: c.colorHighlights !== false,
+        saveImages: c.saveImages !== false,
+        imageQuotaGB:
+            typeof c.imageQuotaGB === 'number' && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100
+                ? c.imageQuotaGB
+                : DEFAULT_SETTINGS.imageQuotaGB,
         ignoreBots: c.ignoreBots !== false,
         ignoreSelf: !!c.ignoreSelf,
         maxStored:
@@ -569,7 +579,7 @@ function snapshotOf(message: any, me: string) {
             ? message.attachments
                   .map((a: any) => String(a?.url ?? a?.proxy_url ?? ''))
                   .filter(Boolean)
-                  .slice(0, 3)
+                  .slice(0, 10)
             : [],
         timestamp: Date.parse(message?.timestamp) || Date.now(),
         mentionsMe: me !== '' && mentionsOf(message).includes(me),
@@ -685,6 +695,273 @@ function toastGhostPing(entry: LoggedMessage) {
     );
 }
 
+// ---- Saved images (messageLoggerEnhanced-style) ----------------------------
+//
+// When a logged message had image attachments, they are downloaded and stored
+// under Documents/message-logger/images/ as base64 .b64 files with a JSON
+// sidecar index (saved-images.json) tracking bytes and timestamps. A total
+// quota (imageQuotaGB) evicts the oldest files first. Only actually-fetchable
+// URLs are cached (Discord CDN links — avatars/emojis are not).
+
+const IMG_DIR_NAME = 'message-logger/images';
+const IMG_INDEX_FILE = 'message-logger/images-index.json';
+
+interface SavedImage {
+    file: string; // file name inside the images dir
+    bytes: number; // decoded size, for quota accounting
+    time: number; // when saved
+}
+
+interface ImageIndex {
+    [messageId: string]: SavedImage[];
+}
+
+let imageIndex: ImageIndex = {};
+let imageQueue: Array<{ id: string; url: string }> = [];
+let imageBusy = false;
+let imageIndexDirty = false;
+
+function getFetch(): any {
+    try {
+        if (typeof fetch === 'function') return fetch.bind(globalThis);
+    } catch {}
+    return null;
+}
+
+function getBlobReader(): ((blob: any) => Promise<string>) | null {
+    try {
+        if (typeof FileReader === 'function') {
+            return (blob: any) =>
+                new Promise((resolve, reject) => {
+                    try {
+                        const fr = new FileReader();
+                        fr.onload = () => resolve(String(fr.result));
+                        fr.onerror = () => reject(fr.error);
+                        fr.readAsDataURL(blob);
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
+        }
+        if (typeof Blob === 'function' && typeof Blob.prototype.arrayBuffer === 'function') {
+            return async (blob: any) => {
+                const buf = await blob.arrayBuffer();
+                let s = '';
+                const bytes = new Uint8Array(buf);
+                for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+                return 'data:application/octet-stream;base64,' + btoa(s);
+            };
+        }
+    } catch {}
+    return null;
+}
+
+// Normalized filesystem across the two native generations:
+//   - Discord FileModule: writeFile(dirName, name, b64content, 'base64'),
+//     DocumentsDirPath + readFile(path) for reads, no delete primitive.
+//   - revenge.fs: writeFile(path, data), readFile(path), rm(path),
+//     getConstants() → { data, files, cache }.
+interface NormalizedFs {
+    dirPath: string | null; // absolute prefix for reads/links, null if unknown
+    writeImage: (name: string, dataB64: string) => Promise<void>;
+    writeText: (path: string, data: string) => Promise<void>;
+    readText: (path: string) => Promise<string>;
+    remove: (path: string) => Promise<boolean>;
+}
+
+function getNormalizedFs(): NormalizedFs | null {
+    const fm: any = getFileModule();
+    let modern: any = null;
+    try {
+        if (typeof revenge !== 'undefined') {
+            modern = (revenge as any)?.fs ?? (revenge as any)?.native?.fs ?? null;
+        }
+    } catch {}
+    try {
+        const b: any = typeof bunny !== 'undefined' ? bunny : null;
+        modern = modern || b?.fs || b?.native?.fs || null;
+    } catch {}
+    if (modern && typeof modern.writeFile === 'function' && typeof modern.readFile === 'function') {
+        let root = '';
+        try {
+            if (typeof modern.getConstants === 'function') {
+                const c = modern.getConstants();
+                root = String(c?.files ?? c?.data ?? '');
+            }
+        } catch {}
+        // revenge.fs paths are absolute — prefix with the files root so both
+        // images and the index land in the same real directory.
+        const abs = (p: string) => (root ? root + '/' + p : p);
+        return {
+            dirPath: root ? root + '/' + IMG_DIR_NAME : null,
+            writeImage: async (name, dataB64) => {
+                await modern.writeFile(abs(IMG_DIR_NAME + '/' + name), dataB64);
+            },
+            writeText: async (path, data) => {
+                await modern.writeFile(abs(path), data);
+            },
+            readText: async (path) => String(await modern.readFile(abs(path))),
+            remove: async (path) => {
+                try {
+                    if (typeof modern.rm === 'function') return !!(await modern.rm(path));
+                    if (typeof modern.deleteFileSync === 'function') return !!modern.deleteFileSync(path);
+                    if (typeof modern.unlink === 'function') {
+                        await modern.unlink(path);
+                        return true;
+                    }
+                } catch {}
+                return false;
+            },
+        };
+    }
+    if (fm && typeof fm.writeFile === 'function') {
+        let docs = '';
+        try {
+            docs = String(fm.getConstants?.()?.DocumentsDirPath ?? '/docs');
+        } catch {}
+        return {
+            dirPath: docs + '/' + IMG_DIR_NAME,
+            writeImage: async (name, dataB64) => {
+                await fm.writeFile('documents', IMG_DIR_NAME + '/' + name, dataB64, 'base64');
+            },
+            writeText: async (_path, data) => {
+                await fm.writeFile('documents', IMG_INDEX_FILE, data, 'utf8');
+            },
+            readText: async (_path) => String(await fm.readFile(docs + '/' + IMG_INDEX_FILE, 'utf8')),
+            remove: async (_path) => false, // legacy FileModule has no delete primitive
+        };
+    }
+    return null;
+}
+
+async function loadImageIndex(): Promise<void> {
+    const fs = getNormalizedFs();
+    if (!fs) return;
+    try {
+        const raw = await fs.readText(IMG_INDEX_FILE);
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') imageIndex = parsed;
+    } catch {
+        /* no index yet */
+    }
+}
+
+async function saveImageIndex(fs: NormalizedFs): Promise<void> {
+    if (!imageIndexDirty) return;
+    try {
+        await fs.writeText(IMG_INDEX_FILE, JSON.stringify(imageIndex));
+        imageIndexDirty = false;
+    } catch (e) {
+        hostError('failed to write image index', e);
+    }
+}
+
+function imageQuotaBytes(): number {
+    return Math.max(0, cfg.imageQuotaGB) * 1024 * 1024 * 1024;
+}
+
+function totalSavedBytes(): number {
+    let sum = 0;
+    for (const id of Object.keys(imageIndex)) {
+        for (const img of imageIndex[id] ?? []) sum += img.bytes || 0;
+    }
+    return sum;
+}
+
+async function evictOverQuota(fs: NormalizedFs, extraBytes: number): Promise<void> {
+    let total = totalSavedBytes() + extraBytes;
+    const quota = imageQuotaBytes();
+    if (total <= quota) return;
+    const entries: Array<{ id: string; img: SavedImage; i: number }> = [];
+    for (const id of Object.keys(imageIndex)) {
+        (imageIndex[id] ?? []).forEach((img, i) => entries.push({ id, img, i }));
+    }
+    entries.sort((a, b) => a.img.time - b.img.time);
+    for (const e of entries) {
+        if (total <= quota) break;
+        const ok = await fs.remove((fs.dirPath ?? '') + '/' + e.img.file);
+        if (ok || !fs.dirPath) {
+            // Only drop index entries when the file is really gone — otherwise
+            // the quota accounting would silently leak.
+            imageIndex[e.id] = (imageIndex[e.id] ?? []).filter((_, i) => i !== e.i);
+            if (!imageIndex[e.id]?.length) delete imageIndex[e.id];
+            total -= e.img.bytes || 0;
+            imageIndexDirty = true;
+        } else {
+            // Legacy fs cannot delete; count it against the quota forever.
+            break;
+        }
+    }
+}
+
+function enqueueImageSave(messageId: string, url: string) {
+    if (!cfg.saveImages || imageQuotaBytes() <= 0) return;
+    if (!getFetch() || !getBlobReader()) return;
+    imageQueue.push({ id: messageId, url });
+    if (imageQueue.length > 100) imageQueue.shift();
+    void pumpImageQueue();
+}
+
+async function pumpImageQueue(): Promise<void> {
+    if (imageBusy) return;
+    imageBusy = true;
+    try {
+        while (imageQueue.length > 0) {
+            const job = imageQueue.shift()!;
+            try {
+                await saveOneImage(job.id, job.url);
+            } catch (e) {
+                hostError('image save failed', e);
+            }
+        }
+    } finally {
+        imageBusy = false;
+    }
+}
+
+async function saveOneImage(messageId: string, url: string): Promise<void> {
+    const fs = getNormalizedFs();
+    if (!fs) return;
+    const fetchFn = getFetch();
+    const readBlob = getBlobReader();
+    if (!fetchFn || !readBlob) return;
+    const res = await fetchFn(url, { method: 'GET' });
+    if (!res || !res.ok) return;
+    const blob = await res.blob();
+    const dataUrl = await readBlob(blob);
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) return;
+    const b64 = dataUrl.slice(comma + 1);
+    const bytes = Math.floor((b64.length * 3) / 4);
+    if (bytes > imageQuotaBytes()) return; // single file bigger than the whole quota
+    await evictOverQuota(fs, bytes);
+    const stamp = Date.now();
+    const name = messageId + '-' + stamp + '-' + (imageIndex[messageId]?.length ?? 0) + '.b64';
+    await fs.writeImage(name, b64);
+    imageIndex[messageId] = [
+        ...(imageIndex[messageId] ?? []),
+        { file: name, bytes, time: stamp },
+    ];
+    imageIndexDirty = true;
+    await saveImageIndex(fs);
+    const entry = log[messageId];
+    if (entry) {
+        entry.savedImages = imageIndex[messageId].length;
+        void persistLog();
+    }
+}
+
+// Only Discord CDN attachments are worth caching; other hosts are skipped.
+function isCacheableImageUrl(url: string): boolean {
+    return /(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
+}
+
+function queueImagesForEntry(entry: LoggedMessage): void {
+    if (!cfg.saveImages) return;
+    const urls = entry.attachments.filter(isCacheableImageUrl).slice(0, 5);
+    for (const url of urls) enqueueImageSave(entry.id, url);
+}
+
 // ---- Flux handlers --------------------------------------------------------
 
 function handleCreate(payload: any) {
@@ -717,6 +994,12 @@ function handleDelete(payload: any) {
     const snap =
         seen.get(id) ??
         snapshotOf(payload?.message ?? { id, channelId }, currentUserId());
+    if (snap.attachments.length === 0 && Array.isArray(payload?.message?.embeds) && payload.message.embeds.length > 0) {
+        snap.attachments = payload.message.embeds
+            .map((e: any) => String(e?.image?.url ?? e?.image?.proxy_url ?? e?.thumbnail?.url ?? ''))
+            .filter(Boolean)
+            .slice(0, 5);
+    }
     if (cfg.ignoreBots && snap.bot) {
         seen.delete(id);
         return;
@@ -740,6 +1023,7 @@ function handleDelete(payload: any) {
     } as LoggedMessage;
     prune(cfg.maxStored);
     void persistLog();
+    queueImagesForEntry(log[id]);
     if (ghost) toastGhostPing(log[id]);
 }
 
@@ -1279,6 +1563,26 @@ function makeSettingsComponent() {
             void reload();
         };
 
+        const clearImageCache = async () => {
+            try {
+                const fs = getNormalizedFs();
+                const base = fs?.dirPath ?? '';
+                for (const id of Object.keys(imageIndex)) {
+                    for (const img of imageIndex[id] ?? []) {
+                        try {
+                            await fs?.remove(base + '/' + img.file);
+                        } catch {}
+                    }
+                }
+                imageIndex = {};
+                imageIndexDirty = true;
+                if (fs) await saveImageIndex(fs);
+                toast('Saved images cleared', 'msglogger-img-clear');
+            } catch {
+                toast('Could not clear saved images', 'msglogger-img-clear-fail');
+            }
+        };
+
         const tab = (key: string, label: string) =>
             el(
                 Pressable,
@@ -1325,6 +1629,19 @@ function makeSettingsComponent() {
                 sw('logEdits', 'Log edited messages'),
                 sw('ghostPings', 'Ghost ping toasts', 'Toast when a message mentioning you is deleted'),
                 sw('colorHighlights', 'Red highlight in chat', 'Deleted messages stay visible with red text (Vencord style)'),
+                sw('saveImages', 'Save deleted images', 'Downloads images from deleted messages into device storage'),
+                el(DText, null, 'Image storage quota (GB)'),
+                el(TextInput, {
+                    placeholder: '2',
+                    placeholderTextColor: C.sub,
+                    defaultValue: String(settings?.imageQuotaGB ?? 2),
+                    onChangeText: (t: string) => {
+                        const n = parseFloat(t);
+                        if (!isNaN(n) && n >= 0.1 && n <= 100) api?.jsonStorage?.set?.({ imageQuotaGB: n });
+                    },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
+                el(DText, null, 'Used: ' + (totalSavedBytes() / 1073741824).toFixed(2) + ' GB · ' + Object.keys(imageIndex).length + ' messages with saved images'),
                 sw('ignoreBots', 'Ignore bot messages'),
                 sw('ignoreSelf', 'Ignore your own messages'),
             ),
@@ -1384,6 +1701,7 @@ function makeSettingsComponent() {
                               ),
                               el(Text, { style: { color: C.text } }, m.content || '(no text content)'),
                               m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + ' attachment(s) saved as links'),
+                              m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + ' image(s) saved to device') : null,
                               m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Previous versions: ' + m.edits.join('  |  ')),
                               el(
                                   Pressable,
@@ -1406,6 +1724,11 @@ function makeSettingsComponent() {
                     Pressable,
                     { onPress: () => void clearLog(), style: { padding: 12, alignItems: 'center' } },
                     el(Text, { style: { fontWeight: 'bold', color: C.deleted } }, 'Clear saved log'),
+                ),
+                el(
+                    Pressable,
+                    { onPress: () => void clearImageCache(), style: { padding: 12, alignItems: 'center' } },
+                    el(Text, { style: { color: C.deleted } }, 'Clear saved images'),
                 ),
                 el(
                     Pressable,
@@ -1493,6 +1816,7 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
     }
 
     await loadLog();
+    void loadImageIndex();
 
     const flux = getFlux();
     if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
@@ -1525,7 +1849,7 @@ async function startNext({ cleanup, jsonStorage, logger }: any) {
     lastStartError = null;
     hostLog('started (Revenge Next)');
     toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
-    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Revenge (Next)\nFlux handlers: ' + handlersRegistered + '/4\nRed highlights: ' + (rowPaintersInstalled + ' painter(s)') + '\nIf you can read this, the new build is running.');
+    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Revenge (Next)\nFlux handlers: ' + handlersRegistered + '/4\nRed highlights: ' + (rowPaintersInstalled + ' painter(s)') + '\nImages cached: ' + Object.keys(imageIndex).length + '\nIf you can read this, the new build is running.');
 }
 
 async function startClassic() {
@@ -1570,6 +1894,7 @@ async function startClassic() {
     refreshClassicConfig();
 
     await loadLog();
+    void loadImageIndex();
 
     const flux = getFlux();
     if (!flux || typeof flux.onFluxEventDispatched !== 'function') {
@@ -1590,7 +1915,7 @@ async function startClassic() {
     lastStartError = null;
     hostLog('started (Revenge Classic / vendetta host)');
     toast('MessageLogger ' + PLUGIN_VERSION + ' started', 'msglogger-started');
-    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Classic / vendetta\nStorage: ' + (storageKind ?? 'none') + '\nFlux handlers: ' + handlersRegistered + '/4\nRed highlights: ' + (rowPaintersInstalled + ' painter(s)') + '\nIf you can read this, the new build is running.');
+    alertBox('MessageLogger ' + PLUGIN_VERSION, 'Host: Classic / vendetta\nStorage: ' + (storageKind ?? 'none') + '\nFlux handlers: ' + handlersRegistered + '/4\nRed highlights: ' + (rowPaintersInstalled + ' painter(s)') + '\nImages cached: ' + Object.keys(imageIndex).length + '\nIf you can read this, the new build is running.');
 }
 
 // ---- Plugin definition ----------------------------------------------------
@@ -1654,6 +1979,7 @@ let __instance: any = {
         highlightCreates.clear();
         highlightEdits.clear();
         manualDeletes.clear();
+        imageQueue.length = 0;
         rowPaintersInstalled = 0;
         handlersRegistered = 0;
         startedAt = null;
