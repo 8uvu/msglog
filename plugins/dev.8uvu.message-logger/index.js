@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.6.3';
+const PLUGIN_VERSION = '1.6.4';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1460,15 +1460,18 @@ function paintRow(row: any, processColor: (c: any) => any) {
         const dim = resolveThemeMeta() === 'light' ? '#828388' : '#afb2b4';
         msg.textColor = processColor(dim);
     }
-    // Equicord "Inline Edits": previous versions shown inside the message.
-    // Dedupe by content (not a painted flag) so a re-render never stacks —
-    // and a NEW edit (longer history) gets painted on the next render pass.
+    // Equicord "Inline Edits": previous versions stack ABOVE the current
+    // text, each line ending with the "(edited)" marker (the current text
+    // keeps Discord's own marker since it IS edited), and the whole row is
+    // already dimmed via msg.textColor. Dedupe by content (not a painted
+    // flag) so a re-render never stacks — and a NEW edit (longer history)
+    // gets painted on the next render pass.
     if (cfg.inlineEdits && typeof msg.content === 'string') {
         const history = log[id]?.edits ?? [];
         if (history.length) {
-            const block = history.map((h) => '(edited) ' + String(h)).join('\n');
+            const block = history.map((h) => String(h) + ' (edited)').join('\n');
             if (!msg.content.includes(block)) {
-                msg.content = msg.content + '\n' + block;
+                msg.content = block + '\n' + msg.content;
             }
         }
     }
