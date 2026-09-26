@@ -682,21 +682,58 @@ function memberById(id: string): any {
     return getUserStore()?.getUser?.(id) ?? { id, username: 'ID ' + id };
 }
 
+// Recent messages in the open channel — for tap-to-pick instead of copying
+// message IDs by hand. Handles both array and cache-object MessageStore shapes.
+function recentMessages(channelId: string): any[] {
+    try {
+        let list = getMessageStore()?.getMessages?.(channelId);
+        if (Array.isArray(list)) return list.filter((m: any) => m?.id).slice(-12).reverse();
+        const arr = Array.from(list?._map?.values?.() ?? []);
+        if (arr.length) return (arr as any[]).filter((m: any) => m?.id).slice(-12).reverse();
+    } catch {}
+    return [];
+}
+
 // ---- Toast --------------------------------------------------------------------
 
-function toast(content: string) {
+function getActions(): any {
     try {
-        const ui = (typeof revenge !== 'undefined' && revenge?.ui) || null;
-        if (ui?.showToast) return void ui.showToast(content, ui.ToastType?.INFO ?? 0);
-        const b: any = typeof bunny !== 'undefined' ? bunny : null;
-        if (b?.api?.toasts?.showToast) {
-            return void b.api.toasts.showToast({ content, type: 1 });
+        if (typeof revenge !== 'undefined') {
+            const a: any = revenge.discord?.actions;
+            if (a) return a;
         }
-        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
-        if (v?.ui?.toasts?.showToast) return void v.ui.toasts.showToast({ content, type: 1 });
-    } catch (e) {
-        hostError('toast failed', e);
-    }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const b: any = bunny;
+            const a = b.metro?.common?.toasts || b.api?.actions?.ToastActionCreators;
+            if (a) return a;
+        }
+    } catch {}
+    return null;
+}
+
+// Toast via revenge.discord.actions.ToastActionCreators.open — the pattern
+// MessageLogger uses and which renders correctly on Revenge Next. The older
+// revenge.ui.showToast({content,type}) path hands an OBJECT to React as a
+// child on current builds and crashes the tree ('Objects are not valid as a
+// React child'). Never touch revenge.ui here.
+function toast(content: string) {
+    const text = String(content ?? '');
+    try {
+        const actions: any = getActions();
+        const open = actions?.ToastActionCreators?.open ?? actions?.open;
+        if (typeof open === 'function') {
+            open({ key: 'fakedm-' + Date.now(), content: text });
+            return;
+        }
+    } catch {}
+    try {
+        const RN: any = getRN();
+        RN?.ToastAndroid?.show?.(text, RN?.ToastAndroid?.SHORT ?? 0);
+        return;
+    } catch {}
+    hostError('no toast channel available');
 }
 
 // ---- Settings UI ---------------------------------------------------------------
@@ -773,6 +810,20 @@ function buildSettingsComponent() {
             }, el(Text, { style: { color: props.value === o.value ? '#ffffff' : C.text, fontSize: 13 } }, o.label)));
         return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
     }
+    // Tap-to-pick a recent message from the open chat — no more copying IDs.
+    function MsgPicker(props: any) {
+        const msgs = recentMessages(props.channelId);
+        if (!msgs.length) {
+            return el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Open the chat, then come back here to pick a message.');
+        }
+        const kids = msgs.map((m: any) =>
+            el(Pressable, {
+                key: String(m.id),
+                onPress: () => props.value === String(m.id) ? props.onChange('') : props.onChange(String(m.id)),
+                style: { backgroundColor: props.value === String(m.id) ? C.blurple : C.chip, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, marginRight: 8, maxWidth: 240 },
+            }, el(Text, { numberOfLines: 1, style: { color: props.value === String(m.id) ? '#ffffff' : C.text, fontSize: 12 } }, String(m.content || '(attachment/embed)') + ' — ' + userLabel(m.author))));
+        return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
+    }
 
     const TABS = [
         { key: 'message', label: 'Message' },
@@ -826,6 +877,14 @@ function buildSettingsComponent() {
         const candidates = memberCandidates();
         const me = getUserStore()?.getCurrentUser?.() ?? null;
         const channelId = currentChannelId();
+        // Sensible defaults: sender starts as YOU, caller defaults handled per tab.
+        const [defaultsInit, setDefaultsInit] = React.useState(0);
+        if (!defaultsInit && me?.id) {
+            setDefaultsInit(1);
+            setSenderId(String(me.id));
+            setBatchSenderId(String(me.id));
+            setReactUserId(String(me.id));
+        }
 
         function parseWhen(timeText: string, dateText: string): Date {
             const d = new Date();
@@ -837,7 +896,7 @@ function buildSettingsComponent() {
         }
 
         const sendAs = () => el(View, null,
-            el(Label, null, 'Send as'),
+            el(Label, null, 'Send as — tap a person (you is pre-picked)'),
             el(MemberChips, { members: candidates, value: senderId, onChange: setSenderId }),
             el(Input, { placeholder: '...or paste a user ID', value: senderId, onChangeText: (t: string) => setSenderId(t.replace(/[^0-9]/g, '')) }));
 
@@ -854,8 +913,9 @@ function buildSettingsComponent() {
                 el(Label, null, 'Message'),
                 el(Input, { placeholder: 'Message text…', value: content, onChangeText: setContent, multiline: true, style: { minHeight: 60, textAlignVertical: 'top' } }),
                 whenInputs(),
-                el(Label, null, 'Reply to message ID (optional)'),
-                el(Input, { placeholder: 'Message ID', value: replyId, onChangeText: (t: string) => setReplyId(t.replace(/[^0-9]/g, '')) }),
+                el(Label, null, 'Reply to — tap a message from the chat'),
+                el(MsgPicker, { channelId, value: replyId, onChange: setReplyId }),
+                el(Input, { placeholder: '...or paste a message ID', value: replyId, onChangeText: (t: string) => setReplyId(t.replace(/[^0-9]/g, '')) }),
                 el(Label, null, 'Image URL (optional attachment)'),
                 el(Input, { placeholder: 'https://…/image.png', value: imageUrl, onChangeText: setImageUrl }),
                 el(SwitchRow, { label: 'Attach an embed', value: embedOn, onValueChange: setEmbedOn }),
@@ -917,16 +977,16 @@ function buildSettingsComponent() {
                 }));
         } else if (tab === 'react') {
             body = el(View, null,
-                el(Label, null, 'Message ID'),
-                el(Input, { placeholder: 'Paste message ID', value: reactMsgId, onChangeText: (t: string) => setReactMsgId(t.replace(/[^0-9]/g, '')) }),
+                el(Label, null, 'Message — tap one from the chat'),
+                el(MsgPicker, { channelId, value: reactMsgId, onChange: setReactMsgId }),
                 el(Label, null, 'Emoji'),
                 el(Input, { placeholder: '😀', value: reactEmoji, onChangeText: setReactEmoji }),
-                el(Label, null, 'React as'),
+                el(Label, null, 'React as (you is pre-picked)'),
                 el(MemberChips, { members: candidates, value: reactUserId, onChange: setReactUserId }),
                 el(Btn, {
                     label: 'Inject reaction', onPress: () => {
                         const uid = reactUserId || String(me?.id ?? '');
-                        if (!reactMsgId || !reactEmoji) return toast('Need a message ID and an emoji');
+                        if (!reactMsgId || !reactEmoji) return toast('Pick a message and an emoji first');
                         const ok = injectReaction(channelId, reactMsgId, uid, reactEmoji);
                         toast(ok ? 'Reaction added' : 'Inject failed');
                         setFakeTick((n: number) => n + 1);

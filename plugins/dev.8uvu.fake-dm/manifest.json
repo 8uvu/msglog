@@ -10,7 +10,7 @@
         "description": "Injects fake messages, calls, system messages, reactions & embeds into any DM or channel. Batch fake conversations. Persists across restarts.",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.0.1",
+    "version": "1.0.2",
     "license": "GPL-3.0-or-later",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
