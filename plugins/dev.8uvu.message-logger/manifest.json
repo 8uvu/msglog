@@ -10,7 +10,7 @@
         "description": "Message logger that logs deleted/edited with a red highlight",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.6.2",
+    "version": "1.6.3",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }

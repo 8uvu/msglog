@@ -147,6 +147,9 @@ function getSelectedChannelStore(): any {
 function getGuildMemberStore(): any {
     return findStore('GuildMemberStore', ['getMembers', 'getMember']);
 }
+function getRelationshipStore(): any {
+    return findStore('RelationshipStore', ['getRelationships', 'getFriendIDs']);
+}
 
 function currentChannelId(): string {
     try {
@@ -660,6 +663,28 @@ function memberCandidates(): any[] {
             const u = getUserStore()?.getUser?.(id);
             if (u) out.push(u);
         }
+        // Friends next — RelationshipStore is keyed by user id (values like
+        // 1 = friend); getFriendIDs() is the legacy fallback. Friends come
+        // before faraway guild members: DMs are usually to friends.
+        try {
+            const rs = getRelationshipStore();
+            const rel = rs?.getRelationships?.() ?? rs?.relationships ?? null;
+            let entries: [string, any][] | null = null;
+            if (rel instanceof Map) entries = Array.from(rel.entries()) as [string, any][];
+            else if (rel && typeof rel === 'object') entries = Object.entries(rel) as [string, any][];
+            let ids: string[] = [];
+            if (entries) {
+                // Prefer actual friends (type 1); other shapes (id→bool etc.)
+                // still list everyone rather than showing nothing.
+                const friends = entries.filter(([, v]) => v === 1 || v === '1' || v === true);
+                ids = (friends.length ? friends : entries).map(([k]) => String(k));
+            }
+            if (!ids.length && typeof rs?.getFriendIDs === 'function') ids = (rs.getFriendIDs() ?? []).map(String);
+            for (const id of ids) {
+                const u = getUserStore()?.getUser?.(String(id));
+                if (u && !out.some((x) => String(x.id) === String(u.id))) out.push(u);
+            }
+        } catch {}
         const guildId = ch?.guild_id ?? ch?.guildId;
         if (guildId) {
             const members = getGuildMemberStore()?.getMembers?.(guildId) ?? [];
@@ -677,26 +702,239 @@ function userLabel(u: any): string {
     return String(u.globalName ?? u.global_name ?? u.username ?? u.id);
 }
 
+// CDN avatar URL for picker chips (null when the user has no custom avatar;
+// chips fall back to an initial circle).
+function userAvatar(u: any): string | null {
+    if (!u) return null;
+    try {
+        const av = u.avatar ?? u.user?.avatar;
+        if (av) return 'https://cdn.discordapp.com/avatars/' + u.id + '/' + av + '.png?size=64';
+    } catch {}
+    return null;
+}
+
 function memberById(id: string): any {
     if (!id) return null;
     return getUserStore()?.getUser?.(id) ?? { id, username: 'ID ' + id };
 }
 
+// Recent messages in the open channel — for tap-to-pick instead of copying
+// message IDs by hand. Handles both array and cache-object MessageStore shapes.
+function recentMessages(channelId: string): any[] {
+    try {
+        let list = getMessageStore()?.getMessages?.(channelId);
+        if (Array.isArray(list)) return list.filter((m: any) => m?.id).slice(-12).reverse();
+        const arr = Array.from(list?._map?.values?.() ?? []);
+        if (arr.length) return (arr as any[]).filter((m: any) => m?.id).slice(-12).reverse();
+    } catch {}
+    return [];
+}
+
+// ---- Native date/time picker -------------------------------------------------
+
+// RN core module that re-exports the native Android date/time pickers as a
+// promise API (the same surface @react-native-community/datetimepicker
+// exposes as DateTimePickerAndroid). Resolves null when absent — callers
+// degrade to typed inputs.
+function moduleOf(...names: string[]): any | null {
+    try {
+        const metro: any = getMetro();
+        for (const n of names) {
+            const m = metro?.findByDisplayName?.(n) ?? null;
+            if (m) return m;
+        }
+    } catch {}
+    return null;
+}
+
+// Probe the native pickers in order and resolve { date } or null.
+// openPicker({mode}) — RN core 'DateTimePicker' module (promise API).
+// showDatePicker/showTimePicker — some client forks wrap them separately.
+async function nativePickDate(mode: string): Promise<{ date: Date } | null> {
+    const android = (() => {
+        try {
+            const direct = moduleOf('DateTimePicker')?.DateTimePickerAndroid ?? moduleOf('DateTimePickerAndroid');
+            if (direct) return direct;
+            // Some builds expose the helper by its props alone.
+            const metro: any = getMetro();
+            const byProps = metro?.findByProps?.('openPicker', 'DateTimePickerAndroid') ?? metro?.findByProps?.('openPicker') ?? null;
+            if (byProps?.DateTimePickerAndroid) return byProps.DateTimePickerAndroid;
+            if (typeof byProps?.openPicker === 'function' || typeof byProps?.open === 'function') return byProps;
+            return null;
+        } catch {
+            return null;
+        }
+    })();
+    if (android) {
+        try {
+            if (typeof android.openPicker === 'function') {
+                const r: any = await android.openPicker({ mode });
+                if (r) {
+                    const a = r.action ?? r;
+                    if (a === 'dismissedAction' || a === 'dismissed') return null;
+                    const d = r.date ?? r;
+                    const dt = d instanceof Date ? d : new Date(d);
+                    if (!isNaN(dt.getTime())) return { date: dt };
+                }
+                return null;
+            }
+            if (typeof android.open === 'function') {
+                // Community API: DateTimePickerAndroid.open({mode, value, onChange}).
+                const r: any = await new Promise((resolve) => {
+                    try {
+                        android.open({ mode, value: new Date(), onChange: (ev: any, d: any) => resolve(d ?? ev?.date ?? null) });
+                    } catch {
+                        resolve(null);
+                    }
+                });
+                const dt = r instanceof Date ? r : r?.date != null ? new Date(r.date) : null;
+                if (dt && !isNaN(dt.getTime())) return { date: dt };
+                return null;
+            }
+        } catch {}
+    }
+    try {
+        const metro: any = getMetro();
+        const fnName = mode === 'time' ? 'showTimePicker' : 'showDatePicker';
+        const p = metro?.findByProps?.(fnName);
+        if (typeof p?.[fnName] === 'function') {
+            const r: any = await new Promise((resolve) => {
+                try {
+                    p[fnName]({ mode }, (d: any) => resolve(d));
+                } catch {
+                    resolve(null);
+                }
+            });
+            const dt = r instanceof Date ? r : r?.date != null ? new Date(r.date) : null;
+            if (dt && !isNaN(dt.getTime())) return { date: dt };
+        }
+    } catch {}
+    return null;
+}
+
+// Typed fallback + the format the native picker fills in.
+function formatYMD(d: Date): string {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function formatHM(d: Date): string {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return p(d.getHours()) + ':' + p(d.getMinutes());
+}
+// Parses the picker/typed 'HH:MM' + 'YYYY-MM-DD' pair (now as default).
+function parseWhenText(timeText: string, dateText: string): Date {
+    const d = new Date();
+    const dm = String(dateText ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dm) d.setFullYear(parseInt(dm[1], 10), parseInt(dm[2], 10) - 1, parseInt(dm[3], 10));
+    const tm = String(timeText ?? '').trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (tm) d.setHours(Math.min(23, parseInt(tm[1], 10)), parseInt(tm[2], 10), 0, 0);
+    return d;
+}
+
+// Gallery picker: Discord's RN runtime ships native media-picker modules.
+// Try the known surfaces in order; resolve with a local file/content URI or
+// null when unavailable (caller degrades to URL input + toast).
+async function pickImageFromGallery(): Promise<string | null> {
+    const metro = getMetro();
+    try {
+        const p = metro?.findByProps?.('openMediaPicker');
+        if (typeof p?.openMediaPicker === 'function') {
+            const res: any = await new Promise((resolve) => {
+                try {
+                    p.openMediaPicker({ type: 'image', multiple: false, onMediaSelected: (r: any) => resolve(r), onCanceled: () => resolve(null), onCancel: () => resolve(null) });
+                } catch (e) { resolve(null); }
+            });
+            const uri = res?.uri ?? res?.[0]?.uri ?? res?.assets?.[0]?.uri ?? (typeof res === 'string' ? res : null);
+            if (uri) return String(uri);
+        }
+    } catch {}
+    try {
+        const p = metro?.findByProps?.('launchImageLibrary');
+        if (typeof p?.launchImageLibrary === 'function') {
+            const res: any = await new Promise((resolve) => {
+                try {
+                    p.launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 }, (r: any) => resolve(r));
+                } catch { resolve(null); }
+            });
+            const uri = res?.assets?.[0]?.uri ?? res?.uri ?? null;
+            if (uri) return String(uri);
+        }
+    } catch {}
+    return null;
+}
+
+// Quick-tab friend search: match candidates by username/global name substring,
+// or accept a raw user ID.
+function resolveQuickUser(text: string, candidates: any[]): any | null {
+    const q = String(text ?? '').trim();
+    if (!q) return null;
+    if (/^\d{5,}$/.test(q)) return getUserStore()?.getUser?.(q) ?? null;
+    const lower = q.toLowerCase().replace(/^@/, '');
+    for (const u of candidates) {
+        const names = [u.username, u.globalName, u.global_name].filter(Boolean).map((s: string) => String(s).toLowerCase());
+        if (names.some((n: string) => n === lower)) return u;
+    }
+    for (const u of candidates) {
+        const names = [u.username, u.globalName, u.global_name].filter(Boolean).map((s: string) => String(s).toLowerCase());
+        if (names.some((n: string) => n.includes(lower))) return u;
+    }
+    return null;
+}
+
+// Time presets for the quick tab.
+function presetDate(key: string): Date {
+    const now = Date.now();
+    if (key === 'now') return new Date(now);
+    const m = key.match(/^m(\d+)$/); // minutes ago
+    if (m) return new Date(now - parseInt(m[1], 10) * 60000);
+    if (key === 'yesterday-evening') {
+        const d = new Date(now - 86400000);
+        d.setHours(20, 34, 0, 0);
+        return d;
+    }
+    return new Date(now);
+}
+
 // ---- Toast --------------------------------------------------------------------
 
-function toast(content: string) {
+function getActions(): any {
     try {
-        const ui = (typeof revenge !== 'undefined' && revenge?.ui) || null;
-        if (ui?.showToast) return void ui.showToast(content, ui.ToastType?.INFO ?? 0);
-        const b: any = typeof bunny !== 'undefined' ? bunny : null;
-        if (b?.api?.toasts?.showToast) {
-            return void b.api.toasts.showToast({ content, type: 1 });
+        if (typeof revenge !== 'undefined') {
+            const a: any = revenge.discord?.actions;
+            if (a) return a;
         }
-        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
-        if (v?.ui?.toasts?.showToast) return void v.ui.toasts.showToast({ content, type: 1 });
-    } catch (e) {
-        hostError('toast failed', e);
-    }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const b: any = bunny;
+            const a = b.metro?.common?.toasts || b.api?.actions?.ToastActionCreators;
+            if (a) return a;
+        }
+    } catch {}
+    return null;
+}
+
+// Toast via revenge.discord.actions.ToastActionCreators.open — the pattern
+// MessageLogger uses and which renders correctly on Revenge Next. The older
+// revenge.ui.showToast({content,type}) path hands an OBJECT to React as a
+// child on current builds and crashes the tree ('Objects are not valid as a
+// React child'). Never touch revenge.ui here.
+function toast(content: string) {
+    const text = String(content ?? '');
+    try {
+        const actions: any = getActions();
+        const open = actions?.ToastActionCreators?.open ?? actions?.open;
+        if (typeof open === 'function') {
+            open({ key: 'fakedm-' + Date.now(), content: text });
+            return;
+        }
+    } catch {}
+    try {
+        const RN: any = getRN();
+        RN?.ToastAndroid?.show?.(text, RN?.ToastAndroid?.SHORT ?? 0);
+        return;
+    } catch {}
+    hostError('no toast channel available');
 }
 
 // ---- Settings UI ---------------------------------------------------------------
@@ -712,7 +950,7 @@ function buildSettingsComponent() {
     const RN = getRN();
     if (!React || !RN) return null;
     const el = React.createElement;
-    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null } = RN;
+    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null, Image = 'img' } = RN;
 
     const isDark = (() => {
         try {
@@ -755,13 +993,31 @@ function buildSettingsComponent() {
             el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, props.label),
             toggle);
     }
+    // Round avatar for picker chips — falls back to an initial circle when
+    // the user has no avatar (or the CDN image fails to load).
+    function Avatar(props: { uri: string | null; name: string; size: number; dim?: boolean }) {
+        const size = props.size ?? 28;
+        if (props.uri) {
+            return el(Image, {
+                source: { uri: props.uri },
+                style: { width: size, height: size, borderRadius: size / 2, backgroundColor: C.input, marginRight: 8, opacity: props.dim ? 0.6 : 1 },
+            });
+        }
+        const initial = (props.name || '?').trim().charAt(0).toUpperCase();
+        return el(View, { style: { width: size, height: size, borderRadius: size / 2, backgroundColor: props.dim ? C.input : C.blurple, alignItems: 'center', justifyContent: 'center', marginRight: 8 } },
+            el(Text, { style: { color: '#ffffff', fontSize: size * 0.5, fontWeight: '700' } }, initial));
+    }
     function MemberChips(props: any) {
-        const kids = props.members.map((u: any) =>
-            el(Pressable, {
+        const kids = props.members.map((u: any) => {
+            const picked = props.value === String(u.id);
+            return el(Pressable, {
                 key: String(u.id),
-                onPress: () => props.value === String(u.id) ? props.onChange('') : props.onChange(String(u.id)),
-                style: { backgroundColor: props.value === String(u.id) ? C.blurple : C.chip, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 },
-            }, el(Text, { style: { color: props.value === String(u.id) ? '#ffffff' : C.text, fontSize: 13 } }, userLabel(u))));
+                onPress: () => picked ? props.onChange('') : props.onChange(String(u.id)),
+                style: { backgroundColor: picked ? C.blurple : C.chip, borderRadius: 18, paddingRight: 12, paddingLeft: 6, paddingVertical: 5, marginRight: 8, flexDirection: 'row', alignItems: 'center' },
+            },
+                el(Avatar, { uri: userAvatar(u), name: userLabel(u), size: 24, dim: !picked }),
+                el(Text, { style: { color: picked ? '#ffffff' : C.text, fontSize: 13 } }, userLabel(u)));
+        });
         return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
     }
     function TypeChips(props: any) {
@@ -773,8 +1029,23 @@ function buildSettingsComponent() {
             }, el(Text, { style: { color: props.value === o.value ? '#ffffff' : C.text, fontSize: 13 } }, o.label)));
         return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
     }
+    // Tap-to-pick a recent message from the open chat — no more copying IDs.
+    function MsgPicker(props: any) {
+        const msgs = recentMessages(props.channelId);
+        if (!msgs.length) {
+            return el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Open the chat, then come back here to pick a message.');
+        }
+        const kids = msgs.map((m: any) =>
+            el(Pressable, {
+                key: String(m.id),
+                onPress: () => props.value === String(m.id) ? props.onChange('') : props.onChange(String(m.id)),
+                style: { backgroundColor: props.value === String(m.id) ? C.blurple : C.chip, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, marginRight: 8, maxWidth: 240 },
+            }, el(Text, { numberOfLines: 1, style: { color: props.value === String(m.id) ? '#ffffff' : C.text, fontSize: 12 } }, String(m.content || '(attachment/embed)') + ' — ' + userLabel(m.author))));
+        return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
+    }
 
     const TABS = [
+        { key: 'quick', label: '★ Quick' },
         { key: 'message', label: 'Message' },
         { key: 'call', label: 'Call' },
         { key: 'system', label: 'System' },
@@ -789,7 +1060,17 @@ function buildSettingsComponent() {
         }
         refreshConfigFromStorage();
 
-        const [tab, setTab] = React.useState('message');
+        const [tab, setTab] = React.useState('quick');
+        // quick tab
+        const [qUser, setQUser] = React.useState('');
+        const [qUserId, setQUserId] = React.useState('');
+        const [qText, setQText] = React.useState('');
+        const [qPreset, setQPreset] = React.useState('now');
+        const [qTime, setQTime] = React.useState('');
+        const [qDate, setQDate] = React.useState('');
+        const [qReply, setQReply] = React.useState('');
+        const [qImage, setQImage] = React.useState('');
+        const [qPicking, setQPicking] = React.useState(false);
         // message tab
         const [senderId, setSenderId] = React.useState('');
         const [content, setContent] = React.useState('');
@@ -826,36 +1107,127 @@ function buildSettingsComponent() {
         const candidates = memberCandidates();
         const me = getUserStore()?.getCurrentUser?.() ?? null;
         const channelId = currentChannelId();
+        // Sensible defaults: sender starts as YOU, caller defaults handled per tab.
+        const [defaultsInit, setDefaultsInit] = React.useState(0);
+        if (!defaultsInit && me?.id) {
+            setDefaultsInit(1);
+            setSenderId(String(me.id));
+            setBatchSenderId(String(me.id));
+            setReactUserId(String(me.id));
+        }
+
+        // When picker: a 'Pick…' button that opens Discord's OS-native
+        // date/time dialog when the client exposes it (RN core
+        // DateTimePickerAndroid surface), falling back to typed inputs.
+        function WhenPicker(props: { time: string; date: string; setTime: (t: string) => void; setDate: (d: string) => void }) {
+            const [show, setShow] = React.useState(false);
+            const [busy, setBusy] = React.useState(false);
+            const pick = async (mode: string) => {
+                setBusy(true);
+                try {
+                    const r = await nativePickDate(mode);
+                    if (r) {
+                        // Fill both fields so the parsed timestamp is exact.
+                        props.setDate(formatYMD(r.date));
+                        props.setTime(formatHM(r.date));
+                    } else {
+                        toast('Native picker not available — type the time below');
+                        setShow(true);
+                    }
+                } finally {
+                    setBusy(false);
+                }
+            };
+            return el(View, null,
+                el(View, { style: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 } },
+                    el(Pressable, {
+                        disabled: busy,
+                        onPress: () => pick('date').then(() => pick('time')),
+                        style: { backgroundColor: C.chip, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginRight: 10 },
+                    }, el(Text, { style: { color: C.text, fontSize: 13, fontWeight: '700' } }, busy ? 'Opening…' : '📅 Pick date & time')),
+                    (props.date || props.time) ? el(Text, { style: { color: C.ok, fontSize: 12, flex: 1 } }, '✓ ' + (props.date || 'today') + ' ' + (props.time || 'now')) : null),
+                show ? el(View, null,
+                    el(Input, { placeholder: 'HH:MM', value: props.time, onChangeText: props.setTime }),
+                    el(Input, { placeholder: 'YYYY-MM-DD', value: props.date, onChangeText: props.setDate }),
+                ) : (props.date || props.time) ? el(Pressable, { onPress: () => setShow(true), style: { marginBottom: 6 } }, el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Edit manually')) : null,
+                (props.date || props.time) ? el(Text, { style: { color: C.sub, fontSize: 11, marginBottom: 6 } }, 'Will show as: ' + parseWhenText(props.time, props.date).toLocaleString()) : null);
+        }
 
         function parseWhen(timeText: string, dateText: string): Date {
-            const d = new Date();
-            const dm = String(dateText ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-            if (dm) d.setFullYear(parseInt(dm[1], 10), parseInt(dm[2], 10) - 1, parseInt(dm[3], 10));
-            const tm = String(timeText ?? '').trim().match(/^(\d{1,2}):(\d{2})$/);
-            if (tm) d.setHours(Math.min(23, parseInt(tm[1], 10)), parseInt(tm[2], 10), 0, 0);
-            return d;
+            return parseWhenText(timeText, dateText);
         }
 
         const sendAs = () => el(View, null,
-            el(Label, null, 'Send as'),
+            el(Label, null, 'Send as — tap a person (you is pre-picked)'),
             el(MemberChips, { members: candidates, value: senderId, onChange: setSenderId }),
             el(Input, { placeholder: '...or paste a user ID', value: senderId, onChangeText: (t: string) => setSenderId(t.replace(/[^0-9]/g, '')) }));
 
         const whenInputs = () => el(View, null,
-            el(Label, null, 'Time (HH:MM, optional — default now)'),
-            el(Input, { placeholder: '14:30', value: timeText, onChangeText: setTimeText }),
-            el(Label, null, 'Date (YYYY-MM-DD, optional)'),
-            el(Input, { placeholder: '2026-09-26', value: dateText, onChangeText: setDateText }));
+            el(Label, null, 'When (optional — default now)'),
+            el(WhenPicker, { time: timeText, date: dateText, setTime: setTimeText, setDate: setDateText }));
 
         let body: any = null;
-        if (tab === 'message') {
+        if (tab === 'quick') {
+            const quickUser = qUserId ? memberById(qUserId) : resolveQuickUser(qUser, candidates);
+            const PRESETS = [
+                { key: 'now', label: 'Now' },
+                { key: 'm5', label: '5m ago' },
+                { key: 'm30', label: '30m ago' },
+                { key: 'm120', label: '2h ago' },
+                { key: 'yesterday-evening', label: 'Yesterday 8:34 PM' },
+                { key: 'custom', label: 'Custom…' },
+            ];
+            const qWhen = qPreset === 'custom' ? parseWhen(qTime, qDate) : presetDate(qPreset);
+            body = el(View, null,
+                el(Label, null, '1. Who says it? Tap a friend or type their name'),
+                el(MemberChips, { members: candidates, value: quickUser ? String(quickUser.id) : '', onChange: (id: string) => { setQUserId(id); setQUser(id ? userLabel(memberById(id)) : ''); } }),
+                el(Input, { placeholder: '@username (or leave empty = you)', value: qUser, onChangeText: (t: string) => { setQUser(t); setQUserId(''); } }),
+                quickUser ? el(Text, { style: { color: C.ok, fontSize: 12, marginBottom: 6 } }, '✓ ' + userLabel(quickUser)) : el(Text, { style: { color: C.sub, fontSize: 12, marginBottom: 6 } }, 'Empty = sent by you'),
+                el(Label, null, '2. What do they say?'),
+                el(Input, { placeholder: 'Type the message…', value: qText, onChangeText: setQText, multiline: true, style: { minHeight: 56, textAlignVertical: 'top' } }),
+                el(Label, null, '3. When? (optional)'),
+                el(TypeChips, { options: PRESETS, value: qPreset, onChange: setQPreset }),
+                qPreset === 'custom' ? el(WhenPicker, { time: qTime, date: qDate, setTime: setQTime, setDate: setQDate }) : null,
+                el(Label, null, 'Reply to one of YOUR messages (optional)'),
+                el(MsgPicker, { channelId, value: qReply, onChange: setQReply }),
+                el(View, { style: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 } },
+                    el(Pressable, {
+                        disabled: qPicking,
+                        onPress: async () => {
+                            setQPicking(true);
+                            try {
+                                const uri = await pickImageFromGallery();
+                                if (uri) { setQImage(uri); toast('Photo attached'); }
+                                else toast('Gallery picker not available on this build — use the Message tab for image URLs');
+                            } finally {
+                                setQPicking(false);
+                            }
+                        },
+                        style: { backgroundColor: C.chip, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginRight: 10 },
+                    }, el(Text, { style: { color: C.text, fontSize: 13, fontWeight: '700' } }, qPicking ? 'Opening…' : '📷 Pick photo')),
+                    qImage ? el(Text, { numberOfLines: 1, style: { color: C.ok, fontSize: 12, flex: 1 } }, '✓ photo attached') : null),
+                qImage ? el(Pressable, { onPress: () => setQImage(''), style: { marginBottom: 8 } }, el(Text, { style: { color: C.danger, fontSize: 12 } }, '✕ Remove photo')) : null,
+                el(Btn, {
+                    label: 'Inject', onPress: () => {
+                        const author = quickUser ?? me;
+                        if (!author) return toast('Could not find that user');
+                        const when = qWhen;
+                        const attachments = qImage ? [{ url: qImage, filename: 'image.png', local: true }] : undefined;
+                        const id = injectMessage(channelId, author, qText, when, undefined, attachments, qReply ? { messageId: qReply } : undefined, undefined);
+                        toast(id ? 'Fake sent ✓' : 'Inject failed');
+                        if (id) { setQText(''); setQReply(''); setQImage(''); setQPreset('now'); setQTime(''); setQDate(''); }
+                        setFakeTick((n: number) => n + 1);
+                    },
+                }));
+        } else if (tab === 'message') {
             body = el(View, null,
                 sendAs(),
                 el(Label, null, 'Message'),
                 el(Input, { placeholder: 'Message text…', value: content, onChangeText: setContent, multiline: true, style: { minHeight: 60, textAlignVertical: 'top' } }),
                 whenInputs(),
-                el(Label, null, 'Reply to message ID (optional)'),
-                el(Input, { placeholder: 'Message ID', value: replyId, onChangeText: (t: string) => setReplyId(t.replace(/[^0-9]/g, '')) }),
+                el(Label, null, 'Reply to — tap a message from the chat'),
+                el(MsgPicker, { channelId, value: replyId, onChange: setReplyId }),
+                el(Input, { placeholder: '...or paste a message ID', value: replyId, onChangeText: (t: string) => setReplyId(t.replace(/[^0-9]/g, '')) }),
                 el(Label, null, 'Image URL (optional attachment)'),
                 el(Input, { placeholder: 'https://…/image.png', value: imageUrl, onChangeText: setImageUrl }),
                 el(SwitchRow, { label: 'Attach an embed', value: embedOn, onValueChange: setEmbedOn }),
@@ -917,16 +1289,16 @@ function buildSettingsComponent() {
                 }));
         } else if (tab === 'react') {
             body = el(View, null,
-                el(Label, null, 'Message ID'),
-                el(Input, { placeholder: 'Paste message ID', value: reactMsgId, onChangeText: (t: string) => setReactMsgId(t.replace(/[^0-9]/g, '')) }),
+                el(Label, null, 'Message — tap one from the chat'),
+                el(MsgPicker, { channelId, value: reactMsgId, onChange: setReactMsgId }),
                 el(Label, null, 'Emoji'),
                 el(Input, { placeholder: '😀', value: reactEmoji, onChangeText: setReactEmoji }),
-                el(Label, null, 'React as'),
+                el(Label, null, 'React as (you is pre-picked)'),
                 el(MemberChips, { members: candidates, value: reactUserId, onChange: setReactUserId }),
                 el(Btn, {
                     label: 'Inject reaction', onPress: () => {
                         const uid = reactUserId || String(me?.id ?? '');
-                        if (!reactMsgId || !reactEmoji) return toast('Need a message ID and an emoji');
+                        if (!reactMsgId || !reactEmoji) return toast('Pick a message and an emoji first');
                         const ok = injectReaction(channelId, reactMsgId, uid, reactEmoji);
                         toast(ok ? 'Reaction added' : 'Inject failed');
                         setFakeTick((n: number) => n + 1);
@@ -943,8 +1315,8 @@ function buildSettingsComponent() {
                     value: batchText, onChangeText: setBatchText, multiline: true, style: { minHeight: 100, textAlignVertical: 'top' },
                 }),
                 el(Text, { style: { color: C.sub, fontSize: 12, marginBottom: 6 } }, parsed.length + ' message(s) parsed'),
-                el(Label, null, 'Base date (YYYY-MM-DD, optional — times come from the script)'),
-                el(Input, { placeholder: '2026-09-26', value: batchDate, onChangeText: setBatchDate }),
+                el(Label, null, 'Base date (optional — times come from the script)'),
+                el(WhenPicker, { time: batchTime, date: batchDate, setTime: setBatchTime, setDate: setBatchDate }),
                 el(Btn, {
                     label: 'Inject ' + parsed.length + ' messages', onPress: () => {
                         if (!parsed.length) return toast('Nothing parsed — check the format');
@@ -1129,6 +1501,9 @@ __instance.__engine = {
     doRestore,
     memberCandidates,
     getFakes: readFakes,
+    parseWhenText,
+    nativePickDate,
+    userAvatar,
 };
 
 if (typeof plugin === 'function') {
@@ -1142,5 +1517,6 @@ __instance.onLoad = function () {
 __instance.onUnload = function () {
     return __instance.stop?.();
 };
+__instance.settings = __instance.SettingsComponent;
 
 export default __instance;
