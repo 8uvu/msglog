@@ -691,6 +691,69 @@ function recentMessages(channelId) {
   }
   return [];
 }
+async function pickImageFromGallery() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  const metro = getMetro();
+  try {
+    const p = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "openMediaPicker");
+    if (typeof (p == null ? void 0 : p.openMediaPicker) === "function") {
+      const res = await new Promise((resolve) => {
+        try {
+          p.openMediaPicker({ type: "image", multiple: false, onMediaSelected: (r) => resolve(r), onCanceled: () => resolve(null), onCancel: () => resolve(null) });
+        } catch (e) {
+          resolve(null);
+        }
+      });
+      const uri = (_g = (_f = (_c = res == null ? void 0 : res.uri) != null ? _c : (_b = res == null ? void 0 : res[0]) == null ? void 0 : _b.uri) != null ? _f : (_e = (_d = res == null ? void 0 : res.assets) == null ? void 0 : _d[0]) == null ? void 0 : _e.uri) != null ? _g : typeof res === "string" ? res : null;
+      if (uri) return String(uri);
+    }
+  } catch {
+  }
+  try {
+    const p = (_h = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _h.call(metro, "launchImageLibrary");
+    if (typeof (p == null ? void 0 : p.launchImageLibrary) === "function") {
+      const res = await new Promise((resolve) => {
+        try {
+          p.launchImageLibrary({ mediaType: "photo", selectionLimit: 1 }, (r) => resolve(r));
+        } catch {
+          resolve(null);
+        }
+      });
+      const uri = (_l = (_k = (_j = (_i = res == null ? void 0 : res.assets) == null ? void 0 : _i[0]) == null ? void 0 : _j.uri) != null ? _k : res == null ? void 0 : res.uri) != null ? _l : null;
+      if (uri) return String(uri);
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveQuickUser(text, candidates) {
+  var _a, _b, _c;
+  const q = String(text != null ? text : "").trim();
+  if (!q) return null;
+  if (/^\d{5,}$/.test(q)) return (_c = (_b = (_a = getUserStore()) == null ? void 0 : _a.getUser) == null ? void 0 : _b.call(_a, q)) != null ? _c : null;
+  const lower = q.toLowerCase().replace(/^@/, "");
+  for (const u of candidates) {
+    const names = [u.username, u.globalName, u.global_name].filter(Boolean).map((s) => String(s).toLowerCase());
+    if (names.some((n) => n === lower)) return u;
+  }
+  for (const u of candidates) {
+    const names = [u.username, u.globalName, u.global_name].filter(Boolean).map((s) => String(s).toLowerCase());
+    if (names.some((n) => n.includes(lower))) return u;
+  }
+  return null;
+}
+function presetDate(key) {
+  const now = Date.now();
+  if (key === "now") return new Date(now);
+  const m = key.match(/^m(\d+)$/);
+  if (m) return new Date(now - parseInt(m[1], 10) * 6e4);
+  if (key === "yesterday-evening") {
+    const d = new Date(now - 864e5);
+    d.setHours(20, 34, 0, 0);
+    return d;
+  }
+  return new Date(now);
+}
 function getActions() {
   var _a, _b, _c, _d, _e;
   try {
@@ -814,6 +877,7 @@ function buildSettingsComponent() {
     return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
   }
   const TABS = [
+    { key: "quick", label: "\u2605 Quick" },
     { key: "message", label: "Message" },
     { key: "call", label: "Call" },
     { key: "system", label: "System" },
@@ -827,7 +891,14 @@ function buildSettingsComponent() {
       jsonStorageApi = props.api.jsonStorage;
     }
     refreshConfigFromStorage();
-    const [tab, setTab] = React.useState("message");
+    const [tab, setTab] = React.useState("quick");
+    const [qUser, setQUser] = React.useState("");
+    const [qUserId, setQUserId] = React.useState("");
+    const [qText, setQText] = React.useState("");
+    const [qPreset, setQPreset] = React.useState("now");
+    const [qReply, setQReply] = React.useState("");
+    const [qImage, setQImage] = React.useState("");
+    const [qPicking, setQPicking] = React.useState(false);
     const [senderId, setSenderId] = React.useState("");
     const [content, setContent] = React.useState("");
     const [timeText, setTimeText] = React.useState("");
@@ -888,7 +959,76 @@ function buildSettingsComponent() {
       el(Input, { placeholder: "2026-09-26", value: dateText, onChangeText: setDateText })
     );
     let body = null;
-    if (tab === "message") {
+    if (tab === "quick") {
+      const quickUser = qUserId ? memberById(qUserId) : resolveQuickUser(qUser, candidates);
+      const PRESETS = [
+        { key: "now", label: "Now" },
+        { key: "m5", label: "5m ago" },
+        { key: "m30", label: "30m ago" },
+        { key: "m120", label: "2h ago" },
+        { key: "yesterday-evening", label: "Yesterday 8:34 PM" }
+      ];
+      body = el(
+        View,
+        null,
+        el(Label, null, "1. Who says it? Tap a friend or type their name"),
+        el(MemberChips, { members: candidates, value: quickUser ? String(quickUser.id) : "", onChange: (id) => {
+          setQUserId(id);
+          setQUser(id ? userLabel(memberById(id)) : "");
+        } }),
+        el(Input, { placeholder: "@username (or leave empty = you)", value: qUser, onChangeText: (t) => {
+          setQUser(t);
+          setQUserId("");
+        } }),
+        quickUser ? el(Text, { style: { color: C.ok, fontSize: 12, marginBottom: 6 } }, "\u2713 " + userLabel(quickUser)) : el(Text, { style: { color: C.sub, fontSize: 12, marginBottom: 6 } }, "Empty = sent by you"),
+        el(Label, null, "2. What do they say?"),
+        el(Input, { placeholder: "Type the message\u2026", value: qText, onChangeText: setQText, multiline: true, style: { minHeight: 56, textAlignVertical: "top" } }),
+        el(Label, null, "3. When? (optional)"),
+        el(TypeChips, { options: PRESETS, value: qPreset, onChange: setQPreset }),
+        el(Label, null, "Reply to one of YOUR messages (optional)"),
+        el(MsgPicker, { channelId, value: qReply, onChange: setQReply }),
+        el(
+          View,
+          { style: { flexDirection: "row", alignItems: "center", marginBottom: 8 } },
+          el(Pressable, {
+            disabled: qPicking,
+            onPress: async () => {
+              setQPicking(true);
+              try {
+                const uri = await pickImageFromGallery();
+                if (uri) {
+                  setQImage(uri);
+                  toast("Photo attached");
+                } else toast("Gallery picker not available on this build \u2014 use the Message tab for image URLs");
+              } finally {
+                setQPicking(false);
+              }
+            },
+            style: { backgroundColor: C.chip, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginRight: 10 }
+          }, el(Text, { style: { color: C.text, fontSize: 13, fontWeight: "700" } }, qPicking ? "Opening\u2026" : "\u{1F4F7} Pick photo")),
+          qImage ? el(Text, { numberOfLines: 1, style: { color: C.ok, fontSize: 12, flex: 1 } }, "\u2713 photo attached") : null
+        ),
+        qImage ? el(Pressable, { onPress: () => setQImage(""), style: { marginBottom: 8 } }, el(Text, { style: { color: C.danger, fontSize: 12 } }, "\u2715 Remove photo")) : null,
+        el(Btn, {
+          label: "Inject",
+          onPress: () => {
+            const author = quickUser != null ? quickUser : me;
+            if (!author) return toast("Could not find that user");
+            const when = presetDate(qPreset);
+            const attachments = qImage ? [{ url: qImage, filename: "image.png", local: true }] : void 0;
+            const id = injectMessage(channelId, author, qText, when, void 0, attachments, qReply ? { messageId: qReply } : void 0, void 0);
+            toast(id ? "Fake sent \u2713" : "Inject failed");
+            if (id) {
+              setQText("");
+              setQReply("");
+              setQImage("");
+              setQPreset("now");
+            }
+            setFakeTick((n) => n + 1);
+          }
+        })
+      );
+    } else if (tab === "message") {
       body = el(
         View,
         null,
