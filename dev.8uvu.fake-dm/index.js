@@ -680,20 +680,55 @@ function memberById(id) {
   if (!id) return null;
   return (_c = (_b = (_a = getUserStore()) == null ? void 0 : _a.getUser) == null ? void 0 : _b.call(_a, id)) != null ? _c : { id, username: "ID " + id };
 }
+function recentMessages(channelId) {
+  var _a, _b, _c, _d, _e;
+  try {
+    let list = (_b = (_a = getMessageStore()) == null ? void 0 : _a.getMessages) == null ? void 0 : _b.call(_a, channelId);
+    if (Array.isArray(list)) return list.filter((m) => m == null ? void 0 : m.id).slice(-12).reverse();
+    const arr = Array.from((_e = (_d = (_c = list == null ? void 0 : list._map) == null ? void 0 : _c.values) == null ? void 0 : _d.call(_c)) != null ? _e : []);
+    if (arr.length) return arr.filter((m) => m == null ? void 0 : m.id).slice(-12).reverse();
+  } catch {
+  }
+  return [];
+}
+function getActions() {
+  var _a, _b, _c, _d, _e;
+  try {
+    if (typeof revenge !== "undefined") {
+      const a = (_a = revenge.discord) == null ? void 0 : _a.actions;
+      if (a) return a;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const a = ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.toasts) || ((_e = (_d = b.api) == null ? void 0 : _d.actions) == null ? void 0 : _e.ToastActionCreators);
+      if (a) return a;
+    }
+  } catch {
+  }
+  return null;
+}
 function toast(content) {
   var _a, _b, _c, _d, _e, _f;
+  const text = String(content != null ? content : "");
   try {
-    const ui = typeof revenge !== "undefined" && (revenge == null ? void 0 : revenge.ui) || null;
-    if (ui == null ? void 0 : ui.showToast) return void ui.showToast(content, (_b = (_a = ui.ToastType) == null ? void 0 : _a.INFO) != null ? _b : 0);
-    const b = typeof bunny !== "undefined" ? bunny : null;
-    if ((_d = (_c = b == null ? void 0 : b.api) == null ? void 0 : _c.toasts) == null ? void 0 : _d.showToast) {
-      return void b.api.toasts.showToast({ content, type: 1 });
+    const actions = getActions();
+    const open = (_b = (_a = actions == null ? void 0 : actions.ToastActionCreators) == null ? void 0 : _a.open) != null ? _b : actions == null ? void 0 : actions.open;
+    if (typeof open === "function") {
+      open({ key: "fakedm-" + Date.now(), content: text });
+      return;
     }
-    const v = typeof vendetta !== "undefined" ? vendetta : null;
-    if ((_f = (_e = v == null ? void 0 : v.ui) == null ? void 0 : _e.toasts) == null ? void 0 : _f.showToast) return void v.ui.toasts.showToast({ content, type: 1 });
-  } catch (e) {
-    hostError("toast failed", e);
+  } catch {
   }
+  try {
+    const RN = getRN();
+    (_f = (_c = RN == null ? void 0 : RN.ToastAndroid) == null ? void 0 : _c.show) == null ? void 0 : _f.call(_c, text, (_e = (_d = RN == null ? void 0 : RN.ToastAndroid) == null ? void 0 : _d.SHORT) != null ? _e : 0);
+    return;
+  } catch {
+  }
+  hostError("no toast channel available");
 }
 function hexToInt(hex) {
   const m = String(hex != null ? hex : "").trim().replace("#", "");
@@ -766,6 +801,18 @@ function buildSettingsComponent() {
     }, el(Text, { style: { color: props.value === o.value ? "#ffffff" : C.text, fontSize: 13 } }, o.label)));
     return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
   }
+  function MsgPicker(props) {
+    const msgs = recentMessages(props.channelId);
+    if (!msgs.length) {
+      return el(Text, { style: { color: C.sub, fontSize: 12 } }, "Open the chat, then come back here to pick a message.");
+    }
+    const kids = msgs.map((m) => el(Pressable, {
+      key: String(m.id),
+      onPress: () => props.value === String(m.id) ? props.onChange("") : props.onChange(String(m.id)),
+      style: { backgroundColor: props.value === String(m.id) ? C.blurple : C.chip, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, marginRight: 8, maxWidth: 240 }
+    }, el(Text, { numberOfLines: 1, style: { color: props.value === String(m.id) ? "#ffffff" : C.text, fontSize: 12 } }, String(m.content || "(attachment/embed)") + " \u2014 " + userLabel(m.author))));
+    return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
+  }
   const TABS = [
     { key: "message", label: "Message" },
     { key: "call", label: "Call" },
@@ -810,6 +857,13 @@ function buildSettingsComponent() {
     const candidates = memberCandidates();
     const me = (_d = (_c = (_b = getUserStore()) == null ? void 0 : _b.getCurrentUser) == null ? void 0 : _c.call(_b)) != null ? _d : null;
     const channelId = currentChannelId();
+    const [defaultsInit, setDefaultsInit] = React.useState(0);
+    if (!defaultsInit && (me == null ? void 0 : me.id)) {
+      setDefaultsInit(1);
+      setSenderId(String(me.id));
+      setBatchSenderId(String(me.id));
+      setReactUserId(String(me.id));
+    }
     function parseWhen(timeText2, dateText2) {
       const d = /* @__PURE__ */ new Date();
       const dm = String(dateText2 != null ? dateText2 : "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -821,7 +875,7 @@ function buildSettingsComponent() {
     const sendAs = () => el(
       View,
       null,
-      el(Label, null, "Send as"),
+      el(Label, null, "Send as \u2014 tap a person (you is pre-picked)"),
       el(MemberChips, { members: candidates, value: senderId, onChange: setSenderId }),
       el(Input, { placeholder: "...or paste a user ID", value: senderId, onChangeText: (t) => setSenderId(t.replace(/[^0-9]/g, "")) })
     );
@@ -842,8 +896,9 @@ function buildSettingsComponent() {
         el(Label, null, "Message"),
         el(Input, { placeholder: "Message text\u2026", value: content, onChangeText: setContent, multiline: true, style: { minHeight: 60, textAlignVertical: "top" } }),
         whenInputs(),
-        el(Label, null, "Reply to message ID (optional)"),
-        el(Input, { placeholder: "Message ID", value: replyId, onChangeText: (t) => setReplyId(t.replace(/[^0-9]/g, "")) }),
+        el(Label, null, "Reply to \u2014 tap a message from the chat"),
+        el(MsgPicker, { channelId, value: replyId, onChange: setReplyId }),
+        el(Input, { placeholder: "...or paste a message ID", value: replyId, onChangeText: (t) => setReplyId(t.replace(/[^0-9]/g, "")) }),
         el(Label, null, "Image URL (optional attachment)"),
         el(Input, { placeholder: "https://\u2026/image.png", value: imageUrl, onChangeText: setImageUrl }),
         el(SwitchRow, { label: "Attach an embed", value: embedOn, onValueChange: setEmbedOn }),
@@ -922,18 +977,18 @@ function buildSettingsComponent() {
       body = el(
         View,
         null,
-        el(Label, null, "Message ID"),
-        el(Input, { placeholder: "Paste message ID", value: reactMsgId, onChangeText: (t) => setReactMsgId(t.replace(/[^0-9]/g, "")) }),
+        el(Label, null, "Message \u2014 tap one from the chat"),
+        el(MsgPicker, { channelId, value: reactMsgId, onChange: setReactMsgId }),
         el(Label, null, "Emoji"),
         el(Input, { placeholder: "\u{1F600}", value: reactEmoji, onChangeText: setReactEmoji }),
-        el(Label, null, "React as"),
+        el(Label, null, "React as (you is pre-picked)"),
         el(MemberChips, { members: candidates, value: reactUserId, onChange: setReactUserId }),
         el(Btn, {
           label: "Inject reaction",
           onPress: () => {
             var _a2;
             const uid = reactUserId || String((_a2 = me == null ? void 0 : me.id) != null ? _a2 : "");
-            if (!reactMsgId || !reactEmoji) return toast("Need a message ID and an emoji");
+            if (!reactMsgId || !reactEmoji) return toast("Pick a message and an emoji first");
             const ok = injectReaction(channelId, reactMsgId, uid, reactEmoji);
             toast(ok ? "Reaction added" : "Inject failed");
             setFakeTick((n) => n + 1);
