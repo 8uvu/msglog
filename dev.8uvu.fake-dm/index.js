@@ -1183,5 +1183,6 @@ __instance.onUnload = function() {
   var _a;
   return (_a = __instance.stop) == null ? void 0 : _a.call(__instance);
 };
+__instance.settings = __instance.SettingsComponent;
 var index_default = __instance;
 ; return (module.exports && module.exports.default) || module.exports; })()
