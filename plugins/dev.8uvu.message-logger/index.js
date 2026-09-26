@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.6.2';
+const PLUGIN_VERSION = '1.6.3';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1429,8 +1429,9 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
 
 // Row painting: Discord's native chat list builds rows through
 // DCDChatManager.updateRows (JSON payload) and RowManager.generate (row
-// objects). Deleted rows get red text + red gutter, edited rows an amber
-// gutter — matching Vencord's messageLogger styling.
+// objects). Deleted rows get red text + red gutter; edited rows are just
+// dimmed, like Vencord's messageLogger (brightness(80%) dark / opacity 0.5
+// light — Vencord never tints edited messages at all).
 function paintRow(row: any, processColor: (c: any) => any) {
     const msg = row?.message;
     if (!msg?.id) return;
@@ -1453,14 +1454,11 @@ function paintRow(row: any, processColor: (c: any) => any) {
             gutterColor: red,
         };
     } else {
-        // Amber gutter bar only — no tinted background. A full-row yellow
-        // background is exactly how Discord paints mention highlights, so
-        // edited rows read as "someone pinged me"; the gutter alone is the
-        // Vencord-style edited marker without the false-mention look.
-        row.backgroundHighlight = {
-            backgroundColor: processColor('transparent'),
-            gutterColor: processColor('#faa61a'),
-        };
+        // Vencord's edited look: no gutter, no background, no color — just a
+        // dimmed row. brightness(80%) of dark-theme text #dbdee1 ≈ #afb2b4,
+        // opacity 0.5 of light-theme text #060607 on white ≈ #828388.
+        const dim = resolveThemeMeta() === 'light' ? '#828388' : '#afb2b4';
+        msg.textColor = processColor(dim);
     }
     // Equicord "Inline Edits": previous versions shown inside the message.
     // Dedupe by content (not a painted flag) so a re-render never stacks —
