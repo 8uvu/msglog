@@ -730,6 +730,150 @@ function recentMessages(channelId: string): any[] {
     return [];
 }
 
+// ---- Channel picker sources ---------------------------------------------------
+
+// Label a channel the way Discord shows it: DMs as the person's name,
+// group DMs as the member list, guild channels with #.
+function channelLabel(c: any): string {
+    if (!c) return 'Unknown channel';
+    try {
+        if (c.type === 1 || (!c.guild_id && (c.recipients?.length === 1 || c.rawRecipients?.length === 1))) {
+            const rid = c.recipients?.[0] ?? (c.rawRecipients?.[0]?.id ?? c.rawRecipients?.[0]);
+            const u = typeof rid === 'object' ? rid : getUserStore()?.getUser?.(String(rid));
+            return '@' + userLabel(u ?? (typeof rid === 'object' ? rid : { id: rid }));
+        }
+        if (!c.guild_id && ((c.recipients?.length ?? 0) > 1 || (c.rawRecipients?.length ?? 0) > 1)) {
+            const names = (c.recipients ?? c.rawRecipients?.map((r: any) => r.id) ?? []).slice(0, 3).map((rid: any) => {
+                const u = getUserStore()?.getUser?.(String(rid));
+                return userLabel(u ?? { id: rid });
+            });
+            const rest = Math.max(0, (c.recipients ?? c.rawRecipients ?? []).length - names.length);
+            return 'Group · ' + names.join(', ') + (rest > 0 ? ' +' + rest : '');
+        }
+        if (c.username || c.globalName || c.global_name) return '@' + userLabel(c);
+        if (c.name) return '#' + c.name;
+    } catch {}
+    return String(c.id ?? 'channel');
+}
+
+// Guilds the user is in (SelectedGuildStore holds the current one).
+function currentGuildId(): string {
+    try {
+        const s = findStore('SelectedGuildStore', ['getGuildId']);
+        return String(s?.getGuildId?.() ?? '');
+    } catch {
+        return '';
+    }
+}
+function guilds(): any[] {
+    const out: any[] = [];
+    try {
+        const gs = findStore('GuildStore', ['getGuilds']) ?? findStore('SortedGuildStore', ['getGuilds']);
+        const map = gs?.getGuilds?.() ?? gs?.guilds ?? null;
+        if (Array.isArray(map)) {
+            out.push(...map.filter((g: any) => g?.id));
+        } else if (map && typeof map.forEach === 'function' && typeof map.size === 'number') {
+            map.forEach((g: any) => { if (g?.id) out.push(g); });
+        } else if (map && typeof map === 'object') {
+            for (const g of Object.values(map)) { if ((g as any)?.id) out.push(g); }
+        }
+    } catch {}
+    const cur = currentGuildId();
+    if (!out.length && cur) {
+        const g = findStore('GuildStore', ['getGuild'])?.getGuild?.(cur);
+        if (g?.id) out.push(g);
+    }
+    return out;
+}
+
+// Text/public channels of a guild (Object + Map shapes).
+function channelsForGuild(guildId: string): any[] {
+    const out: any[] = [];
+    try {
+        let cs: any = getChannelStore();
+        if (typeof cs?.getChannels !== 'function') {
+            // Some builds keep getChannels on a different surface.
+            cs = getMetro()?.findByProps?.('getChannels') ?? cs;
+        }
+        const rec = cs?.getChannels?.(guildId);
+        const lists = [rec?.ALL_CHANNELS ?? rec?.channels ?? rec, rec?.text, rec?.SELECTABLE];
+        for (const list of lists) {
+            if (Array.isArray(list)) { out.push(...list); break; }
+            if (list && typeof list.forEach === 'function') {
+                list.forEach((c: any) => out.push(c)); break;
+            }
+        }
+    } catch {}
+    return out.filter((c, i, a) => c?.id && a.findIndex((x) => String(x.id) === String(c.id)) === i)
+        .filter((c) => c.type == null || c.type === 0 || c.type === 5 || c.type === 15);
+}
+
+// Group DMs the user is a member of (GroupStore LIKE.getGroups / getGuilds).
+function directChannels(): any[] {
+    const out: any[] = [];
+    try {
+        const gs = findStore('GroupStore', ['getGroups']) ?? findStore('LIKE', ['getGroups']);
+        const map = gs?.getGroups?.() ?? gs?.getGuilds?.() ?? null;
+        const push = (g: any) => { if (g?.id) out.push(g); };
+        if (Array.isArray(map)) map.forEach(push);
+        else if (map && typeof map.forEach === 'function' && typeof map.size === 'number') map.forEach(push);
+        else if (map && typeof map === 'object') Object.values(map).forEach(push);
+    } catch {}
+    return out.filter((c, i, a) => c?.id && a.findIndex((x) => String(x.id) === String(c.id)) === i);
+}
+
+// Recently visited channels: private-channel store history, falling back to
+// just the channel currently open so the picker is never empty.
+function recentsChannels(): any[] {
+    const out: any[] = [];
+    try {
+        const s = findStore('PrivateChannelRecentsStore', ['getRecents', 'recents']) ?? findStore('PrivateChannelSortStore', ['getSortedPrivateChannels']);
+        const rec = s?.getRecents?.() ?? s?.recents ?? s?.getSortedPrivateChannels?.() ?? null;
+        const push = (entry: any) => {
+            const ch = entry?.channel ?? entry;
+            if (ch?.id) out.push(ch);
+        };
+        if (Array.isArray(rec)) rec.forEach(push);
+        else if (rec && typeof rec.forEach === 'function') rec.forEach(push);
+    } catch {}
+    const cur = currentChannelId();
+    if (cur && !out.some((c) => String(c.id) === cur)) {
+        out.push(getChannelStore()?.getChannel?.(cur) ?? { id: cur, recipients: [] });
+    }
+    return out.filter((c, i, a) => c?.id && a.findIndex((x) => String(x.id) === String(c.id)) === i);
+}
+
+// Open (or create locally) the 1:1 DM channel with a user. PrivateChannelRecorder
+// exists on current builds; creating through it does NOT hit the network —
+// Discord generates DM channel ids locally and syncs lazily.
+async function resolveDmChannel(userId: string): Promise<any | null> {
+    try {
+        const metro = getMetro();
+        const rec = metro?.findByProps?.('createNativeOrBotChannel') ?? metro?.findByProps?.('createDMChannel') ?? null;
+        const Recorder = rec?.PrivateChannelRecorder ?? rec?.default?.PrivateChannelRecorder ?? null;
+        if (Recorder) {
+            try {
+                const r = new Recorder(String(userId));
+                const cid = typeof r.getChannelId === 'function' ? r.getChannelId() : null;
+                if (cid) return r;
+            } catch {}
+        }
+        if (typeof rec?.createDMChannel === 'function') {
+            const r = await rec.createDMChannel(String(userId));
+            if (r) return r;
+        }
+    } catch {}
+    try {
+        const existing = getChannelStore()?.getChannel?.(String(userId)) ?? null;
+        if (existing?.id) return existing;
+    } catch {}
+    try {
+        const dm = getChannelStore()?.getDMChannel?.(String(userId)) ?? null;
+        if (dm?.id) return dm;
+    } catch {}
+    return null;
+}
+
 // ---- Native date/time picker -------------------------------------------------
 
 // RN core module that re-exports the native Android date/time pickers as a
@@ -1044,6 +1188,59 @@ function buildSettingsComponent() {
         return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } }, ...kids);
     }
 
+    // Channel/DM picker: pick WHERE the fake lands — recently visited DMs,
+    // group DMs, any guild channel, or a friend's DM opened on the spot.
+    function ChannelPicker(props: { value: string; onChange: (id: string) => void }) {
+        const recents = recentsChannels();
+        const groups = directChannels();
+        const guildList = guilds();
+        const [openGuild, setOpenGuild] = React.useState('');
+        const [qText, setQText] = React.useState('');
+        const [busy, setBusy] = React.useState(false);
+
+        const chip = (label: string, key: string, onPick: () => void) =>
+            el(Pressable, {
+                key,
+                onPress: onPick,
+                style: { backgroundColor: props.value === key ? C.ok : C.chip, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, maxWidth: 260 },
+            }, el(Text, { numberOfLines: 1, style: { color: props.value === key ? '#ffffff' : C.text, fontSize: 13 } }, label));
+
+        const qMatch = resolveQuickUser(qText, memberCandidates());
+        return el(View, null,
+            el(Label, null, 'Recent'),
+            el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } },
+                ...recents.slice(0, 10).map((c: any) => chip(channelLabel(c), String(c.id), () => props.onChange(String(c.id))))),
+            groups.length ? el(View, null,
+                el(Label, null, 'Group DMs'),
+                el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } },
+                    ...groups.slice(0, 10).map((c: any) => chip(channelLabel(c), String(c.id), () => props.onChange(String(c.id)))))) : null,
+            guildList.length ? el(View, null,
+                el(Label, null, 'Servers'),
+                el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } },
+                    ...guildList.slice(0, 15).map((g: any) => chip(String(g.name ?? g.id), 'guild:' + g.id, () => setOpenGuild(openGuild === String(g.id) ? '' : String(g.id)))))
+                ,
+                openGuild ? el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 6 } },
+                    ...channelsForGuild(openGuild).slice(0, 25).map((c: any) => chip(channelLabel(c), String(c.id), () => props.onChange(String(c.id))))) : null) : null,
+            el(Label, null, 'Start a DM with a friend'),
+            el(Input, { placeholder: '@username — opens their DM', value: qText, onChangeText: setQText }),
+            busy ? el(Text, { style: { color: C.sub, fontSize: 12, marginBottom: 6 } }, 'Opening DM…')
+                : qMatch ? el(Pressable, {
+                    onPress: async () => {
+                        setBusy(true);
+                        try {
+                            const ch: any = await resolveDmChannel(String(qMatch.id));
+                            const cid = ch ? (typeof ch.getChannelId === 'function' ? ch.getChannelId() : ch.id) : null;
+                            if (cid) { props.onChange(String(cid)); setQText(''); }
+                            else toast('Could not open that DM');
+                        } finally {
+                            setBusy(false);
+                        }
+                    },
+                    style: { marginBottom: 6 },
+                }, el(Text, { style: { color: C.ok, fontSize: 12 } }, '→ Open DM with ' + userLabel(qMatch)))
+                : qText.trim() ? el(Text, { style: { color: C.sub, fontSize: 12, marginBottom: 6 } }, 'No match — tap a person chip in ★ Quick first') : null);
+    }
+
     const TABS = [
         { key: 'quick', label: '★ Quick' },
         { key: 'message', label: 'Message' },
@@ -1106,7 +1303,20 @@ function buildSettingsComponent() {
 
         const candidates = memberCandidates();
         const me = getUserStore()?.getCurrentUser?.() ?? null;
+        const [qChannel, setQChannel] = React.useState('');
         const channelId = currentChannelId();
+        // Resolved injection target: picked channel, else the open one.
+        const targetId = qChannel || channelId;
+        const targetName = (() => {
+            if (qChannel) return channelLabel(getChannelStore()?.getChannel?.(qChannel) ?? { id: qChannel });
+            return channelId ? channelLabel(getChannelStore()?.getChannel?.(channelId) ?? { id: channelId }) : '';
+        })();
+
+        // WHERE strip: shown on every tab — pick the DM/group/channel the
+        // fake lands in (defaults to the chat you have open).
+        const whereStrip = () => el(View, { style: { marginBottom: 4 } },
+            el(Label, null, 'Where — DM, group or server channel (default: the open chat)'),
+            el(ChannelPicker, { value: qChannel, onChange: setQChannel }));
         // Sensible defaults: sender starts as YOU, caller defaults handled per tab.
         const [defaultsInit, setDefaultsInit] = React.useState(0);
         if (!defaultsInit && me?.id) {
@@ -1213,7 +1423,7 @@ function buildSettingsComponent() {
                         if (!author) return toast('Could not find that user');
                         const when = qWhen;
                         const attachments = qImage ? [{ url: qImage, filename: 'image.png', local: true }] : undefined;
-                        const id = injectMessage(channelId, author, qText, when, undefined, attachments, qReply ? { messageId: qReply } : undefined, undefined);
+                        const id = injectMessage(targetId, author, qText, when, undefined, attachments, qReply ? { messageId: qReply } : undefined, undefined);
                         toast(id ? 'Fake sent ✓' : 'Inject failed');
                         if (id) { setQText(''); setQReply(''); setQImage(''); setQPreset('now'); setQTime(''); setQDate(''); }
                         setFakeTick((n: number) => n + 1);
@@ -1243,7 +1453,7 @@ function buildSettingsComponent() {
                         if (!author) return toast('Pick who sends it first');
                         const embeds: FakeEmbed[] | undefined = embedOn ? [{ title: embedTitle || undefined, description: embedDesc || undefined, color: hexToInt(embedColor), image: embedImage ? { url: embedImage } : undefined }] : undefined;
                         const attachments = imageUrl ? [{ url: imageUrl, filename: imageUrl.split('/').pop() || 'image.png' }] : undefined;
-                        const id = injectMessage(channelId, author, content, parseWhen(timeText, dateText), undefined, attachments, replyId ? { messageId: replyId } : undefined, embeds);
+                        const id = injectMessage(targetId, author, content, parseWhen(timeText, dateText), undefined, attachments, replyId ? { messageId: replyId } : undefined, embeds);
                         toast(id ? 'Fake message injected' : 'Inject failed (no dispatcher?)');
                         setFakeTick((n: number) => n + 1);
                     },
@@ -1264,7 +1474,7 @@ function buildSettingsComponent() {
                         if (!caller) return toast('Pick a caller first');
                         const other = memberById(receiverId || (candidates.find((u: any) => String(u.id) !== String(caller.id))?.id ?? caller.id));
                         const sec = Math.max(0, parseInt(durationMin || '0', 10) || 0) * 60;
-                        const id = injectCall(channelId, caller, other, missed, sec, parseWhen(timeText, dateText));
+                        const id = injectCall(targetId, caller, other, missed, sec, parseWhen(timeText, dateText));
                         toast(id ? 'Fake call injected' : 'Inject failed');
                         setFakeTick((n: number) => n + 1);
                     },
@@ -1282,7 +1492,7 @@ function buildSettingsComponent() {
                     label: 'Inject system message', onPress: () => {
                         const author = memberById(sysSenderId || (candidates[0]?.id ?? ''));
                         if (!author) return toast('Pick an actor first');
-                        const id = injectSystemMessage(channelId, author, sysType ?? 6, sysContent, parseWhen(timeText, dateText));
+                        const id = injectSystemMessage(targetId, author, sysType ?? 6, sysContent, parseWhen(timeText, dateText));
                         toast(id ? 'System message injected' : 'Inject failed');
                         setFakeTick((n: number) => n + 1);
                     },
@@ -1299,7 +1509,7 @@ function buildSettingsComponent() {
                     label: 'Inject reaction', onPress: () => {
                         const uid = reactUserId || String(me?.id ?? '');
                         if (!reactMsgId || !reactEmoji) return toast('Pick a message and an emoji first');
-                        const ok = injectReaction(channelId, reactMsgId, uid, reactEmoji);
+                        const ok = injectReaction(targetId, reactMsgId, uid, reactEmoji);
                         toast(ok ? 'Reaction added' : 'Inject failed');
                         setFakeTick((n: number) => n + 1);
                     },
@@ -1321,7 +1531,7 @@ function buildSettingsComponent() {
                     label: 'Inject ' + parsed.length + ' messages', onPress: () => {
                         if (!parsed.length) return toast('Nothing parsed — check the format');
                         const base = parseWhen(batchTime, batchDate);
-                        const n = injectBatch(channelId, parsed, candidates, memberById(batchSenderId || (me?.id ?? '')), base);
+                        const n = injectBatch(targetId, parsed, candidates, memberById(batchSenderId || (me?.id ?? '')), base);
                         toast(n + ' fake message(s) injected' + (n < parsed.length ? ' — some names unknown' : ''));
                         setFakeTick((nn: number) => nn + 1);
                     },
@@ -1330,14 +1540,14 @@ function buildSettingsComponent() {
             // Fakes tab
             void fakeTick;
             const all = readFakes();
-            const inChannel = all.filter((f) => f.type !== 'reaction' && f.channelId === channelId);
+            const inChannel = all.filter((f) => f.type !== 'reaction' && f.channelId === targetId);
             const shown = inChannel.length ? inChannel : all;
             body = el(View, null,
                 el(Text, { style: { color: C.sub, fontSize: 12, paddingHorizontal: 14, paddingTop: 6 } },
                     inChannel.length ? 'Fakes in this channel: ' + inChannel.length : 'No fakes in this channel — showing all ' + all.length),
                 el(Btn, {
                     label: 'Clear all fakes in this channel', danger: true, onPress: () => {
-                        const n = clearFakesInChannel(channelId);
+                        const n = clearFakesInChannel(targetId);
                         toast(n + ' fake(s) cleared');
                         setFakeTick((x: number) => x + 1);
                     },
@@ -1377,10 +1587,13 @@ function buildSettingsComponent() {
                 }));
         }
 
+        // Every tab gets the WHERE strip on top: choose DM/group/server channel.
+        body = el(View, null, whereStrip(), body);
+
         return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg } },
             el(View, { style: { paddingHorizontal: 16, paddingTop: 14 } },
                 el(Text, { style: { color: C.text, fontSize: 18, fontWeight: '800' } }, 'FakeDM'),
-                el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, 'Injects into: ' + (channelId ? (getChannelStore()?.getChannel?.(channelId)?.name ?? 'DM · ' + channelId.slice(-6)) : 'no channel open — open a DM first'))),
+                el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, 'Injects into: ' + (targetName || 'no channel open — pick one below'))),
             el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginTop: 10, paddingHorizontal: 12 } },
                 ...TABS.map((t) => el(Pressable, {
                     key: t.key,
@@ -1504,9 +1717,13 @@ __instance.__engine = {
     parseWhenText,
     nativePickDate,
     userAvatar,
-};
-
-if (typeof plugin === 'function') {
+    channelLabel,
+    recentsChannels,
+    directChannels,
+    guilds,
+    channelsForGuild,
+    resolveDmChannel,
+};    if (typeof plugin === 'function') {
     __instance = plugin(__instance);
 }
 globalThis.plugin = __instance;
