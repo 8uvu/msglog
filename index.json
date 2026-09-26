@@ -13,7 +13,7 @@
             "versions": {
                 "1.0.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.2.zip",
-                    "sha256": "0949718258262cb9eae94e7eb207685a2c4b250e8f006509a74874e0c4228daf",
+                    "sha256": "2250e9daa16f93f3c75f5072343344531df77881ade85c669d5f4ea236007e1f",
                     "size": 5752,
                     "dependencies": {
                         "revenge.api": {
@@ -36,7 +36,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.host-probe@1.0.0.zip",
-                    "sha256": "c1d36937895652d77a88ef9b27faff6a2509e35381349ea49b083ac4c766e318",
+                    "sha256": "b26ed33da3be3d0ed96db4149a83517f04ea0ebfaea98a8877f1e38ed8571a80",
                     "size": 3531,
                     "dependencies": {
                         "revenge.api": {
@@ -59,7 +59,7 @@
             "versions": {
                 "1.6.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.6.2.zip",
-                    "sha256": "c4ae69b1b74ae7515362262f5d8b6e8e8ccf73ec928cca79f40052296b3e87fa",
+                    "sha256": "e6dd60b5e73c5bdd5515de73a5865914988aea58eebb437e283e67dbc4c60406",
                     "size": 19209,
                     "dependencies": {
                         "revenge.api": {
@@ -82,7 +82,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.quick-check@1.0.0.zip",
-                    "sha256": "fb9eb111f4e63ed04d699401db3b96abe4798532d9565891ab6f163143df4d8d",
+                    "sha256": "0eb90d7f30094d89e4aa46171e84947142579341d6550423037a9c309c6a3c3c",
                     "size": 2870,
                     "dependencies": {
                         "revenge.api": {
