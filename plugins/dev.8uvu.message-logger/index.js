@@ -1125,6 +1125,8 @@ function handleCreate(payload: any) {
 
 function handleDelete(payload: any) {
     if (!cfg.enabled || !cfg.logDeletes) return;
+    // FakeDM-style clear: respect the mlDeleted marker (see installDeleteRewrite).
+    if (payload?.mlDeleted) return;
     const id = String(payload?.message?.id ?? payload?.id ?? '');
     const channelId = String(payload?.message?.channelId ?? payload?.channelId ?? '');
     if (!id || inList(channelId, cfg.ignoredChannels)) return;
@@ -1343,6 +1345,9 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
             try {
                 const type = payload?.type;
                 if (type === 'MESSAGE_DELETE' && cfg.logDeletes) {
+                    // mlDeleted: a fake message being removed by FakeDM-style
+                    // plugins — let it vanish normally, don't keep/log it.
+                    if (payload?.mlDeleted) return undefined;
                     const id = String(payload?.id ?? payload?.messageId ?? payload?.message?.id ?? '');
                     const channelId = String(payload?.channelId ?? payload?.channel_id ?? payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
                     if (!id || !channelId) return;
