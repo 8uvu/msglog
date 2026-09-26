@@ -1142,5 +1142,6 @@ __instance.onLoad = function () {
 __instance.onUnload = function () {
     return __instance.stop?.();
 };
+__instance.settings = __instance.SettingsComponent;
 
 export default __instance;
