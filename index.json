@@ -13,7 +13,7 @@
             "versions": {
                 "1.0.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.2.zip",
-                    "sha256": "61f8f7ffe10275aec6dce4d8bd135610a861e9e4cf20414fba47009289982506",
+                    "sha256": "368cf187c54ebb3e1d400cebe6c64bc34a611b57dc742f1ce899b87c3e7fef40",
                     "size": 5752,
                     "dependencies": {
                         "revenge.api": {
@@ -31,13 +31,13 @@
             "description": "Injects fake messages, calls, system messages, reactions & embeds into any DM or channel. Batch fake conversations. Persists across restarts. Mobile port of your Equicord plugin.",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.2.0"
+                "latest": "1.2.1"
             },
             "versions": {
-                "1.2.0": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.fake-dm@1.2.0.zip",
-                    "sha256": "8b88f4e4dcc50a1db81bc23d874fb65b6b44c31f137c826b3995c87996e0a4f8",
-                    "size": 14122,
+                "1.2.1": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.fake-dm@1.2.1.zip",
+                    "sha256": "51188f127a9e9ad2f6df7336a9918eaed02011e9448093568675f8ef895f5c3b",
+                    "size": 14121,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
@@ -59,7 +59,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.host-probe@1.0.0.zip",
-                    "sha256": "0e25d58becebd7fa67bc5dc04f0eb6f39bd4389a98d4be86ae5931207c280a5c",
+                    "sha256": "726ddbb73fa724197e8412a3436743c4c4eb664ff6ff4e67ecd9c7a09879731d",
                     "size": 3531,
                     "dependencies": {
                         "revenge.api": {
@@ -82,7 +82,7 @@
             "versions": {
                 "1.6.4": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.6.4.zip",
-                    "sha256": "81f2e4310c5ae3c19d993f42c2ea0524317e59873cb2f27c2fbf55e176b063a3",
+                    "sha256": "a3c0398939ae416318cff437cc12a8c2531062e2e67ee94b9eb0ef9f3a776359",
                     "size": 19209,
                     "dependencies": {
                         "revenge.api": {
@@ -105,7 +105,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.quick-check@1.0.0.zip",
-                    "sha256": "b1ab89563578649b7d0cd76cdf8bfcd27f801fc66d95a9d8d053b2af2d9907ed",
+                    "sha256": "44f99c9c4ed2a62b01674a7e6e30e85ae055adf573c6d500ad5204d7fff82a75",
                     "size": 2870,
                     "dependencies": {
                         "revenge.api": {
