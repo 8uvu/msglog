@@ -13,7 +13,7 @@
             "versions": {
                 "1.0.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.2.zip",
-                    "sha256": "ccd1382e7f8ffad9cf962bad661876d21db5d8688721b7604130ec7006cec72c",
+                    "sha256": "fa60d96aea9f1187ad4c91f2cdca357d5d3d9f197c23b5eafb271961f4fd2251",
                     "size": 5752,
                     "dependencies": {
                         "revenge.api": {
@@ -31,13 +31,13 @@
             "description": "Injects fake messages, calls, system messages, reactions & embeds into any DM or channel. Batch fake conversations. Persists across restarts. Mobile port of your Equicord plugin.",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.1.0"
+                "latest": "1.2.0"
             },
             "versions": {
-                "1.1.0": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.fake-dm@1.1.0.zip",
-                    "sha256": "2336388aeea0e8303c130bc0cce9b35787d9f38f439f3c2479defb12b26b8f17",
-                    "size": 14121,
+                "1.2.0": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.fake-dm@1.2.0.zip",
+                    "sha256": "761820854c2407feff346fca04f21fd07c92550a09a9705f138b414ae2b3565a",
+                    "size": 14122,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
@@ -59,7 +59,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.host-probe@1.0.0.zip",
-                    "sha256": "d02f627734a0a9f2b9af418bc579148e245d05d8a6f8aa68ded9ebde90332c4b",
+                    "sha256": "0bbd020fc712dcf5c670aa962715644115f48ab82e5ca007da96501839dfc17a",
                     "size": 3531,
                     "dependencies": {
                         "revenge.api": {
@@ -77,12 +77,12 @@
             "description": "Message logger that logs deleted/edited with a red highlight",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.6.2"
+                "latest": "1.6.3"
             },
             "versions": {
-                "1.6.2": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.6.2.zip",
-                    "sha256": "b1b4861ec3a4c166584c2a2bd5a10f9347c92fc578d5a2460373ddbec91cbbdf",
+                "1.6.3": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.6.3.zip",
+                    "sha256": "7202e1685c7d75bc391cece456d4bcccc93b2dbeece14d02d0ba9cba8393ca43",
                     "size": 19209,
                     "dependencies": {
                         "revenge.api": {
@@ -105,7 +105,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.quick-check@1.0.0.zip",
-                    "sha256": "36ddb77539148b6cd6cbb21ee6e014e22a0948a1104afb9fb6015dd16b6f3fb0",
+                    "sha256": "8a8daec3094506c6fc56afb6d7a0107f7ab981a17cc3b90e36df1410ce55cfed",
                     "size": 2870,
                     "dependencies": {
                         "revenge.api": {
