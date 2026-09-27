@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.6.4';
+const PLUGIN_VERSION = '1.6.5';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1633,8 +1633,8 @@ function viewerColors() {
             sub: '#4e5058',
             deleted: '#d83c3e',
             deletedBg: 'rgba(216,60,62,0.10)',
-            edited: '#c28516',
-            editedBg: 'rgba(250,166,26,0.12)',
+            edited: '#4e5058',
+            editedBg: 'rgba(0,0,0,0.05)',
         };
     }
     return {
@@ -1644,8 +1644,8 @@ function viewerColors() {
         sub: '#949ba4',
         deleted: '#f23f43',
         deletedBg: 'rgba(242,63,67,0.14)',
-        edited: '#faa61a',
-        editedBg: 'rgba(250,166,26,0.14)',
+        edited: '#949ba4',
+        editedBg: 'rgba(255,255,255,0.06)',
     };
 }
 
