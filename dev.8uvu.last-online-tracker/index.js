@@ -98,19 +98,52 @@ function findStore(name, props) {
 function getUserStore() {
   return findStore("UserStore", ["getCurrentUser"]);
 }
-function getDispatcher() {
+function getFlux() {
   var _a, _b, _c, _d, _e, _f;
   try {
-    const metro = getMetro();
-    const fd = (_d = (_c = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "subscribe", "dispatch")) != null ? _c : (_b = metro == null ? void 0 : metro.common) == null ? void 0 : _b.FluxDispatcher) != null ? _d : null;
-    if (fd == null ? void 0 : fd.dispatch) return fd;
+    if (typeof revenge !== "undefined") {
+      const flux = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux;
+      if (flux) return flux;
+    }
   } catch {
   }
   try {
-    if (typeof revenge !== "undefined") {
-      const fd = (_f = (_e = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _e.flux) == null ? void 0 : _f.dispatcher;
-      if (fd == null ? void 0 : fd.dispatch) return fd;
+    if (typeof bunny !== "undefined") {
+      const flux = (_b = bunny == null ? void 0 : bunny.api) == null ? void 0 : _b.flux;
+      if (flux == null ? void 0 : flux.intercept) {
+        return {
+          onFluxEventDispatched: (event, listener) => flux.intercept((payload) => (payload == null ? void 0 : payload.type) === event ? listener(payload) : void 0)
+        };
+      }
     }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const fd = (_f = (_d = (_c = v == null ? void 0 : v.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.FluxDispatcher) != null ? _f : (_e = v == null ? void 0 : v.common) == null ? void 0 : _e.FluxDispatcher;
+      if (fd == null ? void 0 : fd.addInterceptor) {
+        return {
+          onFluxEventDispatched: (event, listener) => fd.addInterceptor((payload) => (payload == null ? void 0 : payload.type) === event ? listener(payload) : void 0)
+        };
+      }
+    }
+  } catch {
+  }
+  return null;
+}
+function getDispatcher() {
+  var _a, _b, _c, _d;
+  try {
+    const metro = getMetro();
+    const fd = (_d = (_c = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "subscribe", "dispatch")) != null ? _c : (_b = metro == null ? void 0 : metro.common) == null ? void 0 : _b.FluxDispatcher) != null ? _d : null;
+    if (fd == null ? void 0 : fd.subscribe) return fd;
+  } catch {
+  }
+  try {
+    const flux = getFlux();
+    const fd = flux == null ? void 0 : flux.dispatcher;
+    if (fd == null ? void 0 : fd.subscribe) return fd;
   } catch {
   }
   return null;
@@ -198,29 +231,43 @@ async function persistConfig() {
 var MIN_ONLINE_MS = 15e3;
 var lastSeenRaw = {};
 var seenOnlineAt = /* @__PURE__ */ new Map();
-function statusIsOnline(status) {
-  const s = typeof status === "string" ? status : status == null ? void 0 : status.status;
-  return s === "online" || s === "idle" || s === "dnd";
+function presenceStatus(payload) {
+  var _a, _b, _c, _d;
+  const value = (_d = (_b = payload == null ? void 0 : payload.status) != null ? _b : (_a = payload == null ? void 0 : payload.presence) == null ? void 0 : _a.status) != null ? _d : (_c = payload == null ? void 0 : payload.user) == null ? void 0 : _c.status;
+  const raw = typeof value === "string" ? value : value == null ? void 0 : value.status;
+  if (typeof raw !== "string") return null;
+  const status = raw.toLowerCase();
+  return ["online", "idle", "dnd", "offline", "invisible"].includes(status) ? status : null;
 }
+function statusIsOnline(status) {
+  return status === "online" || status === "idle" || status === "dnd";
+}
+var presenceEventsSeen = 0;
+var departuresRecorded = 0;
+var lastPresenceEventAt = 0;
 function handlePresence(payload) {
-  var _a, _b, _c, _d, _e, _f, _g, _h;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
   try {
-    const userId = String((_c = (_b = payload == null ? void 0 : payload.userId) != null ? _b : (_a = payload == null ? void 0 : payload.user) == null ? void 0 : _a.id) != null ? _c : "");
-    if (!userId) return false;
-    const online = statusIsOnline(payload == null ? void 0 : payload.status);
+    const userId = String((_i = (_h = (_f = (_c = (_a = payload == null ? void 0 : payload.userId) != null ? _a : payload == null ? void 0 : payload.user_id) != null ? _c : (_b = payload == null ? void 0 : payload.user) == null ? void 0 : _b.id) != null ? _f : (_e = (_d = payload == null ? void 0 : payload.presence) == null ? void 0 : _d.user) == null ? void 0 : _e.id) != null ? _h : (_g = payload == null ? void 0 : payload.presence) == null ? void 0 : _g.userId) != null ? _i : "");
+    const status = presenceStatus(payload);
+    if (!userId || !status) return false;
     const now = Date.now();
-    if (online) {
+    presenceEventsSeen++;
+    lastPresenceEventAt = now;
+    if (statusIsOnline(status)) {
       if (!seenOnlineAt.has(userId)) seenOnlineAt.set(userId, now);
       return false;
     }
     const since = seenOnlineAt.get(userId);
+    seenOnlineAt.delete(userId);
     if (since == null || now - since < MIN_ONLINE_MS) return false;
-    const prev = (_d = lastSeenRaw[userId]) != null ? _d : 0;
+    const prev = (_j = lastSeenRaw[userId]) != null ? _j : 0;
     if (now - prev < MIN_ONLINE_MS) return false;
     lastSeenRaw[userId] = now;
+    departuresRecorded++;
     if (cfg.notify) {
-      const u = (_f = (_e = getUserStore()) == null ? void 0 : _e.getUser) == null ? void 0 : _f.call(_e, userId);
-      toast(((_h = (_g = u == null ? void 0 : u.globalName) != null ? _g : u == null ? void 0 : u.username) != null ? _h : "Someone") + " went offline");
+      const u = (_l = (_k = getUserStore()) == null ? void 0 : _k.getUser) == null ? void 0 : _l.call(_k, userId);
+      toast(((_n = (_m = u == null ? void 0 : u.globalName) != null ? _m : u == null ? void 0 : u.username) != null ? _n : "Someone") + " went offline");
     }
     persistConfig();
     return true;
@@ -235,41 +282,103 @@ function clearLastSeen() {
   for (const k of Object.keys(lastSeenRaw)) delete lastSeenRaw[k];
   persistConfig();
 }
-var subscribed = false;
-var presenceHandler = null;
-function subscribePresence() {
-  try {
-    const fd = getDispatcher();
-    if (!(fd == null ? void 0 : fd.subscribe)) return false;
-    presenceHandler = (p) => {
-      try {
-        handlePresence(p);
-      } catch {
-      }
-    };
-    fd.subscribe("PRESENCE_UPDATE", presenceHandler);
-    subscribed = true;
-    return true;
-  } catch (e) {
-    hostError("subscribePresence failed", e);
-    return false;
+var presenceCleanups = [];
+var cleanupApi = null;
+function registerPresenceCleanup(off) {
+  if (typeof off === "function") {
+    presenceCleanups.push(off);
+    try {
+      cleanupApi == null ? void 0 : cleanupApi(off);
+    } catch {
+    }
   }
 }
-function unsubscribePresence() {
-  var _a, _b;
-  try {
-    if (subscribed && presenceHandler) {
-      (_b = (_a = getDispatcher()) == null ? void 0 : _a.unsubscribe) == null ? void 0 : _b.call(_a, "PRESENCE_UPDATE", presenceHandler);
+function receivePresence(payload) {
+  const batches = Array.isArray(payload == null ? void 0 : payload.presences) ? payload.presences : Array.isArray(payload == null ? void 0 : payload.updates) ? payload.updates : Array.isArray(payload == null ? void 0 : payload.users) ? payload.users : Array.isArray(payload) ? payload : [payload];
+  for (const item of batches) {
+    try {
+      handlePresence(item);
+    } catch {
     }
-  } catch {
   }
-  subscribed = false;
-  presenceHandler = null;
+}
+function subscribePresence() {
+  if (presenceCleanups.length) return true;
+  const flux = getFlux();
+  const fd = getDispatcher();
+  const events = ["PRESENCE_UPDATES", "PRESENCE_UPDATE"];
+  let installed = 0;
+  for (const event of events) {
+    const listener = (payload) => {
+      receivePresence(payload);
+      return payload;
+    };
+    try {
+      if (typeof (flux == null ? void 0 : flux.onFluxEventDispatched) === "function") {
+        const off = flux.onFluxEventDispatched(event, listener);
+        if (typeof off === "function") {
+          registerPresenceCleanup(off);
+          installed++;
+          continue;
+        }
+        if (typeof flux.removeFluxEventListener === "function") {
+          registerPresenceCleanup(() => flux.removeFluxEventListener(event, listener));
+          installed++;
+          continue;
+        }
+      }
+    } catch (e) {
+      hostError("Revenge flux " + event + " hook failed", e);
+    }
+    try {
+      if (typeof (flux == null ? void 0 : flux.intercept) === "function") {
+        const off = flux.intercept((payload) => {
+          if ((payload == null ? void 0 : payload.type) === event) return listener(payload);
+          return void 0;
+        });
+        if (typeof off === "function") {
+          registerPresenceCleanup(off);
+          installed++;
+          continue;
+        }
+        if (typeof flux.removeInterceptor === "function") {
+          registerPresenceCleanup(() => flux.removeInterceptor(off));
+          installed++;
+          continue;
+        }
+      }
+    } catch (e) {
+      hostError("flux interceptor " + event + " hook failed", e);
+    }
+    try {
+      if (fd == null ? void 0 : fd.subscribe) {
+        fd.subscribe(event, listener);
+        registerPresenceCleanup(() => {
+          var _a;
+          return (_a = fd.unsubscribe) == null ? void 0 : _a.call(fd, event, listener);
+        });
+        installed++;
+      }
+    } catch (e) {
+      hostError("subscribe " + event + " failed", e);
+    }
+  }
+  return installed > 0;
+}
+function unsubscribePresence() {
+  var _a;
+  while (presenceCleanups.length) {
+    try {
+      (_a = presenceCleanups.pop()) == null ? void 0 : _a();
+    } catch {
+    }
+  }
 }
 var cleanupFns = [];
 async function startNext(api) {
   var _a, _b, _c;
   jsonStorageApi = (_a = api == null ? void 0 : api.jsonStorage) != null ? _a : getStorage();
+  cleanupApi = typeof (api == null ? void 0 : api.cleanup) === "function" ? api.cleanup : null;
   await loadConfig();
   try {
     const data = (_c = await ((_b = jsonStorageApi == null ? void 0 : jsonStorageApi.get) == null ? void 0 : _b.call(jsonStorageApi))) != null ? _c : {};
@@ -281,7 +390,7 @@ async function startNext(api) {
   } catch (e) {
     hostError("restore lastSeen failed", e);
   }
-  subscribePresence();
+  if (!subscribePresence()) hostError("no presence event API found; tracking is inactive");
 }
 async function stopNext() {
   unsubscribePresence();
@@ -293,6 +402,7 @@ async function stopNext() {
   });
   cleanupFns = [];
   await persistConfig();
+  cleanupApi = null;
 }
 function relTime(ts) {
   const diff = Date.now() - ts;
@@ -355,6 +465,10 @@ function buildSettingsComponent() {
     }
     const [, force] = React.useState(0);
     const [q, setQ] = React.useState("");
+    React.useEffect(() => {
+      const timer = setInterval(() => force((n) => n + 1), 5e3);
+      return () => clearInterval(timer);
+    }, []);
     const entries = Object.entries(getLastSeen()).map(([id, ts]) => {
       var _a2, _b, _c, _d, _e;
       const u = (_b = (_a2 = getUserStore()) == null ? void 0 : _a2.getUser) == null ? void 0 : _b.call(_a2, id);
@@ -366,7 +480,9 @@ function buildSettingsComponent() {
         { key: "head", style: { paddingHorizontal: 14, paddingTop: 8 } },
         el(Text, { style: { color: C.text, fontSize: 16, fontWeight: "800" } }, "LastOnlineTracker"),
         el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, "Records when people go offline \u2014 departures you actually saw. Discord never shows this."),
-        el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, "A timestamp is only written after watching someone online for 15s+, so opening a server can't fake an exodus.")
+        el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, "A timestamp is only written after watching someone online for 15s+, so opening a server can't fake an exodus."),
+        el(Text, { style: { color: presenceCleanups.length ? C.ok : C.danger, fontSize: 11, marginTop: 6 } }, presenceCleanups.length ? "Tracking active \xB7 " + presenceEventsSeen + " presence updates \xB7 " + departuresRecorded + " departures" : "Tracking inactive \xB7 no supported presence event hook found"),
+        lastPresenceEventAt ? el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 2 } }, "Last presence event " + relTime(lastPresenceEventAt)) : null
       )
     ];
     kids.push(el(
@@ -417,9 +533,10 @@ function buildSettingsComponent() {
 }
 var __builtSettings = null;
 var __instance = {
+  jsonStorage: { load: true, default: { persist: true, notify: false, lastSeen: {} } },
   start: startNext,
   stop: stopNext,
-  settingsComponentLazy: function(props) {
+  SettingsComponent: function(props) {
     var _a, _b;
     try {
       if (!__builtSettings) __builtSettings = buildSettingsComponent();
@@ -442,7 +559,8 @@ __instance.__engine = {
   setConfig: (patch) => {
     if (patch && typeof patch === "object") Object.assign(cfg, patch);
   },
-  MIN_ONLINE_MS
+  MIN_ONLINE_MS,
+  getDiagnostics: () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt })
 };
 if (typeof plugin === "function") {
   __instance = plugin(__instance);
@@ -456,6 +574,8 @@ __instance.onUnload = function() {
   var _a;
   return (_a = __instance.stop) == null ? void 0 : _a.call(__instance);
 };
-__instance.settings = __instance.settingsComponentLazy;
+__instance.settings = __instance.SettingsComponent;
+__instance.settingsComponentLazy = __instance.SettingsComponent;
+__instance.__engine.getDiagnostics = () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt });
 var index_default = __instance;
 ; return (module.exports && module.exports.default) || module.exports; })()

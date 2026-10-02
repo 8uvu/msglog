@@ -13,7 +13,7 @@
             "versions": {
                 "1.0.2": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.clean-urls@1.0.2.zip",
-                    "sha256": "dcc5b04a0718a8e65ba1e806fcf2df839f1cad0fc655f6653999b25d9ec4661f",
+                    "sha256": "866dd877bb4437f56ad538ba689e524da5194129760c0673b225ccea11467c59",
                     "size": 5752,
                     "dependencies": {
                         "revenge.api": {
@@ -36,7 +36,7 @@
             "versions": {
                 "1.2.1": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.fake-dm@1.2.1.zip",
-                    "sha256": "f219eadf316ab2cc3bb07583226ed2c69beb0ec070ad2d10403e3c1893d8df30",
+                    "sha256": "17ed2f76c18a2c311b5f67f475f49518a55e806dc9b0abe4e82c2e111d00358b",
                     "size": 14121,
                     "dependencies": {
                         "revenge.api": {
@@ -59,7 +59,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.host-probe@1.0.0.zip",
-                    "sha256": "8b21a8b6adaed678f3d494fa620fc297acec4e04e8d1731aa1a6fe8c0c5b29f2",
+                    "sha256": "16a3045e755bd88b9fc93ae1b2f2c00a03d8c5aea3c4dfec9d5353339d32e55c",
                     "size": 3531,
                     "dependencies": {
                         "revenge.api": {
@@ -77,13 +77,13 @@
             "description": "Records when friends go offline — a 'last seen' Discord never shows you. Only counts departures you actually witnessed, so server syncs can't fake them.",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.0.0"
+                "latest": "1.1.0"
             },
             "versions": {
-                "1.0.0": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.last-online-tracker@1.0.0.zip",
-                    "sha256": "9a04732c9250bd278b1d360475c150a537c12b2d459f5990dc27c346046b4d0d",
-                    "size": 5613,
+                "1.1.0": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.last-online-tracker@1.1.0.zip",
+                    "sha256": "2800e56a5afbc2c0d67ec1432d51ad8c5a1bb0c10e9a1f83a9802125676ed10d",
+                    "size": 6662,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
@@ -97,16 +97,16 @@
         },
         "dev.8uvu.message-logger": {
             "name": "MessageLogger",
-            "description": "Message logger that logs deleted/edited with a red highlight",
+            "description": "Message logger with searchable deleted/edited history, inline edit history, image caching, and a redesigned settings viewer",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.6.5"
+                "latest": "1.6.7"
             },
             "versions": {
-                "1.6.5": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.6.5.zip",
-                    "sha256": "a783a90dc64fdf860d64d92ff93671400b3db0fd7eb50436c91a6b6bccdfdd99",
-                    "size": 19209,
+                "1.6.7": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.message-logger@1.6.7.zip",
+                    "sha256": "62c6151977ba21d342cb376aae9df96756ef70c08c5e2c04c557d3b072695f67",
+                    "size": 19573,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
@@ -123,13 +123,13 @@
             "description": "Spoof what platform you're on — Discord shows the matching platform icon (desktop, web, iOS, Xbox…) next to your name. Mobile port of Equicord's platformSpoofer.",
             "author": "8uvu aka Epitaph",
             "channels": {
-                "latest": "1.0.0"
+                "latest": "1.1.0"
             },
             "versions": {
-                "1.0.0": {
-                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.platform-spoofer@1.0.0.zip",
-                    "sha256": "0da47aecdb64bf2297a75ba693ece8fae6557743636236ce2fa49025b3f29d49",
-                    "size": 5324,
+                "1.1.0": {
+                    "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.platform-spoofer@1.1.0.zip",
+                    "sha256": "62e8a44e60776d4631a2507658ac1643ad4336523a5ff9d963e7d555fe54a0c1",
+                    "size": 5437,
                     "dependencies": {
                         "revenge.api": {
                             "version": ">=1"
@@ -151,7 +151,7 @@
             "versions": {
                 "1.0.0": {
                     "url": "https://8uvu.github.io/msglog/pool/dev.8uvu.quick-check@1.0.0.zip",
-                    "sha256": "39c5675f7d6ae61bcc7f670c30a053f809c6e7454bd2b035724fdc1181766eed",
+                    "sha256": "222f626369a5f12200da460b9cff13155325b718cd185a68623689771dde41b9",
                     "size": 2870,
                     "dependencies": {
                         "revenge.api": {

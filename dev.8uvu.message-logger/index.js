@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.6.1";
+var PLUGIN_VERSION = "1.6.7";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -1249,17 +1249,15 @@ function paintRow(row, processColor) {
       gutterColor: red
     };
   } else {
-    row.backgroundHighlight = {
-      backgroundColor: processColor("#faa61a18"),
-      gutterColor: processColor("#faa61a")
-    };
+    msg.textColor = processColor("#afb2b4");
+    delete row.backgroundHighlight;
   }
   if (cfg.inlineEdits && typeof msg.content === "string") {
     const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
     if (history.length) {
-      const block = history.map((h) => "(edited) " + String(h)).join("\n");
+      const block = history.map((h) => String(h) + " (edited)").join("\n");
       if (!msg.content.includes(block)) {
-        msg.content = msg.content + "\n" + block;
+        msg.content = block + "\n" + msg.content;
       }
     }
   }
@@ -1414,8 +1412,8 @@ function viewerColors() {
       sub: "#4e5058",
       deleted: "#d83c3e",
       deletedBg: "rgba(216,60,62,0.10)",
-      edited: "#c28516",
-      editedBg: "rgba(250,166,26,0.12)"
+      edited: "#4e5058",
+      editedBg: "rgba(0,0,0,0.05)"
     };
   }
   return {
@@ -1425,8 +1423,8 @@ function viewerColors() {
     sub: "#949ba4",
     deleted: "#f23f43",
     deletedBg: "rgba(242,63,67,0.14)",
-    edited: "#faa61a",
-    editedBg: "rgba(250,166,26,0.14)"
+    edited: "#949ba4",
+    editedBg: "rgba(255,255,255,0.06)"
   };
 }
 function makeSettingsComponent() {
@@ -1604,9 +1602,33 @@ function makeSettingsComponent() {
         return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { [key]: v });
       }
     });
+    const deletedCount = entries.filter((m) => m.status === "deleted").length;
+    const editedCount = entries.filter((m) => m.status === "edited").length;
+    const ghostCount = entries.filter((m) => m.ghostPing).length;
     return el(
       ScrollView,
-      { style: { flexGrow: 1 } },
+      { style: { flexGrow: 1, backgroundColor: C.bg }, contentContainerStyle: { paddingBottom: 24 } },
+      el(
+        View,
+        { style: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 } },
+        el(Text, { style: { color: C.text, fontSize: 22, fontWeight: "800" } }, "MessageLogger"),
+        el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 3 } }, "Your saved message history and capture settings")
+      ),
+      el(
+        View,
+        { style: { flexDirection: "row", marginHorizontal: 12, marginTop: 8 } },
+        ...[
+          { label: "SAVED", value: String(entries.length), color: C.text },
+          { label: "DELETED", value: String(deletedCount), color: C.deleted },
+          { label: "EDITED", value: String(editedCount), color: C.edited },
+          { label: "GHOSTS", value: String(ghostCount), color: C.sub }
+        ].map((stat) => el(
+          View,
+          { key: stat.label, style: { flex: 1, backgroundColor: C.card, borderRadius: 10, paddingVertical: 10, marginHorizontal: 3, alignItems: "center" } },
+          el(Text, { style: { color: stat.color, fontSize: 17, fontWeight: "800" } }, stat.value),
+          el(Text, { style: { color: C.sub, fontSize: 9, fontWeight: "700", marginTop: 2 } }, stat.label)
+        ))
+      ),
       el(
         RowGroup,
         { title: "Status" },
@@ -1774,7 +1796,7 @@ function makeSettingsComponent() {
       el(
         RowGroup,
         { title: "Saved log (" + visible.length + " shown)" },
-        el(View, { style: { flexDirection: "row" } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
+        el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4 } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
         el(TextInput, {
           placeholder: "Search author or text\u2026",
           placeholderTextColor: C.sub,

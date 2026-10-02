@@ -144,8 +144,7 @@ var jsonStorageApi = null;
 async function loadConfig() {
   var _a, _b;
   try {
-    const s = getStorage();
-    const data = (_b = await ((_a = s == null ? void 0 : s.get) == null ? void 0 : _a.call(s))) != null ? _b : {};
+    const data = (_b = await ((_a = jsonStorageApi == null ? void 0 : jsonStorageApi.get) == null ? void 0 : _a.call(jsonStorageApi))) != null ? _b : {};
     if (data && typeof data === "object") {
       if (typeof data.enabled === "boolean") cfg.enabled = data.enabled;
       if (typeof data.platform === "string" && platformProps(data.platform)) cfg.platform = data.platform;
@@ -157,8 +156,7 @@ async function loadConfig() {
 async function persistConfig() {
   var _a;
   try {
-    const s = getStorage();
-    await ((_a = s == null ? void 0 : s.set) == null ? void 0 : _a.call(s, { ...cfg }));
+    await ((_a = jsonStorageApi == null ? void 0 : jsonStorageApi.set) == null ? void 0 : _a.call(jsonStorageApi, { ...cfg }));
   } catch (e) {
     hostError("persistConfig failed", e);
   }
@@ -166,13 +164,23 @@ async function persistConfig() {
 function refreshConfigFromStorage() {
   var _a, _b;
   try {
-    const s = getStorage();
-    const data = (_b = (_a = s == null ? void 0 : s.use) == null ? void 0 : _a.call(s)) != null ? _b : null;
+    const data = (_b = (_a = jsonStorageApi == null ? void 0 : jsonStorageApi.use) == null ? void 0 : _a.call(jsonStorageApi)) != null ? _b : null;
     if (data && typeof data === "object") {
       if (typeof data.enabled === "boolean") cfg.enabled = data.enabled;
       if (typeof data.platform === "string" && platformProps(data.platform)) cfg.platform = data.platform;
     }
   } catch {
+  }
+}
+async function updateConfig(patch) {
+  if (!patch || typeof patch !== "object") return;
+  if (typeof patch.enabled === "boolean") cfg.enabled = patch.enabled;
+  if (typeof patch.platform === "string" && platformProps(patch.platform)) cfg.platform = patch.platform;
+  await persistConfig();
+  if (cfg.enabled) {
+    if (!installPatch()) hostError("no gateway identify surface found; spoofer inactive");
+  } else {
+    uninstallPatch();
   }
 }
 var activePatch = null;
@@ -379,13 +387,11 @@ function buildSettingsComponent() {
         { style: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" } },
         el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, "Enable spoofing"),
         Switch ? el(Switch, { value: cfg.enabled, onValueChange: (v) => {
-          cfg.enabled = v;
-          persistConfig();
+          void updateConfig({ enabled: v });
           setTick((n) => n + 1);
-          toast(v ? "Spoofer on \u2014 restart Discord to apply" : "Spoofer off");
+          toast(v ? "Spoofer enabled" : "Spoofer disabled");
         } }) : el(Text, { style: { color: C.sub }, onPress: () => {
-          cfg.enabled = !cfg.enabled;
-          persistConfig();
+          void updateConfig({ enabled: !cfg.enabled });
           setTick((n) => n + 1);
         } }, cfg.enabled ? "On" : "Off")
       ),
@@ -399,8 +405,7 @@ function buildSettingsComponent() {
         const rows = PLATFORMS.map((p) => el(Pressable, {
           key: p.key,
           onPress: () => {
-            cfg.platform = p.key;
-            persistConfig();
+            void updateConfig({ platform: p.key });
             setTick((n) => n + 1);
           },
           style: { backgroundColor: cfg.platform === p.key ? C.blurple : C.chip, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 }
@@ -418,14 +423,15 @@ function buildSettingsComponent() {
       })()
     ));
     void tick;
-    return el(View, { style: { flex: 1, backgroundColor: C.bg, paddingBottom: 30 } }, ...kids);
+    return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg }, contentContainerStyle: { paddingBottom: 30 } }, ...kids);
   };
 }
 var __builtSettings = null;
 var __instance = {
+  jsonStorage: { load: true, default: { enabled: false, platform: "desktop" } },
   start: startNext,
   stop: stopNext,
-  settingsComponentLazy: function(props) {
+  SettingsComponent: function(props) {
     var _a, _b;
     try {
       if (!__builtSettings) __builtSettings = buildSettingsComponent();
@@ -449,6 +455,7 @@ __instance.__engine = {
   setConfig: (patch) => {
     if (patch && typeof patch === "object") Object.assign(cfg, patch);
   },
+  updateConfig,
   findIdentifySurfaces,
   PLATFORMS
 };
@@ -464,6 +471,7 @@ __instance.onUnload = function() {
   var _a;
   return (_a = __instance.stop) == null ? void 0 : _a.call(__instance);
 };
-__instance.settings = __instance.settingsComponentLazy;
+__instance.settings = __instance.SettingsComponent;
+__instance.settingsComponentLazy = __instance.SettingsComponent;
 var index_default = __instance;
 ; return (module.exports && module.exports.default) || module.exports; })()
