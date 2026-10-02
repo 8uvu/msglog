@@ -13,7 +13,7 @@
 //   - Toasts go through ToastActionCreators.open, never revenge.ui.showToast.
 //   - Hermes: children passed to createElement are always arrays/normalized.
 
-let PLUGIN_VERSION = '1.0.0';
+let PLUGIN_VERSION = '1.1.0';
 
 // ---- Host lookups (lazy, call inside start/UI render only) --------------------
 
@@ -155,8 +155,7 @@ let jsonStorageApi: any = null;
 
 async function loadConfig() {
     try {
-        const s = getStorage();
-        const data = (await s?.get?.()) ?? {};
+        const data = (await jsonStorageApi?.get?.()) ?? {};
         if (data && typeof data === 'object') {
             if (typeof data.enabled === 'boolean') cfg.enabled = data.enabled;
             if (typeof data.platform === 'string' && platformProps(data.platform)) cfg.platform = data.platform;
@@ -168,8 +167,7 @@ async function loadConfig() {
 
 async function persistConfig() {
     try {
-        const s = getStorage();
-        await s?.set?.({ ...cfg });
+        await jsonStorageApi?.set?.({ ...cfg });
     } catch (e) {
         hostError('persistConfig failed', e);
     }
@@ -177,13 +175,24 @@ async function persistConfig() {
 
 function refreshConfigFromStorage() {
     try {
-        const s = getStorage();
-        const data = s?.use?.() ?? null;
+        const data = jsonStorageApi?.use?.() ?? null;
         if (data && typeof data === 'object') {
             if (typeof data.enabled === 'boolean') cfg.enabled = data.enabled;
             if (typeof data.platform === 'string' && platformProps(data.platform)) cfg.platform = data.platform;
         }
     } catch {}
+}
+
+async function updateConfig(patch: any) {
+    if (!patch || typeof patch !== 'object') return;
+    if (typeof patch.enabled === 'boolean') cfg.enabled = patch.enabled;
+    if (typeof patch.platform === 'string' && platformProps(patch.platform)) cfg.platform = patch.platform;
+    await persistConfig();
+    if (cfg.enabled) {
+        if (!installPatch()) hostError('no gateway identify surface found; spoofer inactive');
+    } else {
+        uninstallPatch();
+    }
 }
 
 // ---- Spoof engine ----------------------------------------------------------------
@@ -417,8 +426,8 @@ function buildSettingsComponent() {
             el(View, { style: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } },
                 el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, 'Enable spoofing'),
                 Switch
-                    ? el(Switch, { value: cfg.enabled, onValueChange: (v: boolean) => { cfg.enabled = v; persistConfig(); setTick((n: number) => n + 1); toast(v ? 'Spoofer on — restart Discord to apply' : 'Spoofer off'); } })
-                    : el(Text, { style: { color: C.sub }, onPress: () => { cfg.enabled = !cfg.enabled; persistConfig(); setTick((n: number) => n + 1); } }, cfg.enabled ? 'On' : 'Off')),
+                    ? el(Switch, { value: cfg.enabled, onValueChange: (v: boolean) => { void updateConfig({ enabled: v }); setTick((n: number) => n + 1); toast(v ? 'Spoofer enabled' : 'Spoofer disabled'); } })
+                    : el(Text, { style: { color: C.sub }, onPress: () => { void updateConfig({ enabled: !cfg.enabled }); setTick((n: number) => n + 1); } }, cfg.enabled ? 'On' : 'Off')),
             el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, cfg.enabled ? 'Active' : 'Disabled — nothing is patched while off')));
 
         kids.push(el(View, { key: 'chips', style: { marginTop: 10 } },
@@ -427,7 +436,7 @@ function buildSettingsComponent() {
                 const rows: any[] = PLATFORMS.map((p) =>
                     el(Pressable, {
                         key: p.key,
-                        onPress: () => { cfg.platform = p.key; persistConfig(); setTick((n: number) => n + 1); },
+                        onPress: () => { void updateConfig({ platform: p.key }); setTick((n: number) => n + 1); },
                         style: { backgroundColor: cfg.platform === p.key ? C.blurple : C.chip, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 },
                     }, el(Text, { style: { color: cfg.platform === p.key ? '#ffffff' : C.text, fontSize: 13, fontWeight: '700' } }, p.label)));
                 return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { paddingHorizontal: 12 } }, ...rows);
@@ -441,16 +450,17 @@ function buildSettingsComponent() {
             })()));
 
         void tick;
-        return el(View, { style: { flex: 1, backgroundColor: C.bg, paddingBottom: 30 } }, ...kids);
+        return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg }, contentContainerStyle: { paddingBottom: 30 } }, ...kids);
     };
 }
 
 let __builtSettings: any = null;
 
 let __instance: any = {
+    jsonStorage: { load: true, default: { enabled: false, platform: 'desktop' } },
     start: startNext,
     stop: stopNext,
-    settingsComponentLazy: function (props: any) {
+    SettingsComponent: function (props: any) {
         try {
             if (!__builtSettings) __builtSettings = buildSettingsComponent();
             if (__builtSettings) return __builtSettings(props);
@@ -475,6 +485,7 @@ __instance.__engine = {
     setConfig: (patch: any) => {
         if (patch && typeof patch === 'object') Object.assign(cfg, patch);
     },
+    updateConfig,
     findIdentifySurfaces,
     PLATFORMS,
 };
@@ -490,6 +501,7 @@ __instance.onLoad = function () {
 __instance.onUnload = function () {
     return __instance.stop?.();
 };
-__instance.settings = __instance.settingsComponentLazy;
+__instance.settings = __instance.SettingsComponent;
+__instance.settingsComponentLazy = __instance.SettingsComponent;
 
 export default __instance;

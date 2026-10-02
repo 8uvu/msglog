@@ -2,15 +2,15 @@
     "format": 1,
     "id": "dev.8uvu.message-logger",
     "name": "MessageLogger",
-    "description": "Message logger that logs deleted/edited with a red highlight",
+    "description": "Message logger with searchable deleted/edited history, inline edit history, image caching, and a redesigned settings viewer",
     "author": "8uvu aka Epitaph",
     "main": "index.js",
     "display": {
         "name": "MessageLogger",
-        "description": "Message logger that logs deleted/edited with a red highlight",
+        "description": "Message logger with searchable deleted/edited history, inline edit history, image caching, and a redesigned settings viewer",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.6.5",
+    "version": "1.6.7",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }

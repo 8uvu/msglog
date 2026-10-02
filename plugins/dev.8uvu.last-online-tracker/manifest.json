@@ -10,7 +10,7 @@
         "description": "Records when friends go offline — a 'last seen' Discord never shows you.",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.0.0",
+    "version": "1.1.0",
     "license": "GPL-3.0-or-later",
     "dependencies": {
         "revenge.api": { "version": ">=1" },

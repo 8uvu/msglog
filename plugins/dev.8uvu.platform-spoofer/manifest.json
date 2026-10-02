@@ -10,7 +10,7 @@
         "description": "Spoof what platform you're on — Discord shows the matching platform icon next to your name.",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.0.0",
+    "version": "1.1.0",
     "license": "GPL-3.0-or-later",
     "dependencies": {
         "revenge.api": { "version": ">=1" },

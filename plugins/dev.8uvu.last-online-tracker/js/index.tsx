@@ -1,7 +1,7 @@
 // LastOnlineTracker — Revenge port of Esharq's lastOnlineTracker idea.
 //
 // Discord never shows when someone went offline. This plugin watches
-// PRESENCE_UPDATE events and records departures it actually WITNESSED: a
+// presence events and records departures it actually WITNESSED: a
 // timestamp is only written for a user we saw online for at least
 // MIN_ONLINE_MS this session. That guard (Esharq v3 learned it the hard
 // way) is what stops guild-sync presence replays from recording an entire
@@ -13,7 +13,7 @@
 //   - Toasts via ToastActionCreators.open (+ ToastAndroid fallback).
 //   - Dispatcher subscriptions are removed on stop().
 
-let PLUGIN_VERSION = '1.0.0';
+let PLUGIN_VERSION = '1.1.0';
 
 // ---- Host lookups (lazy) -------------------------------------------------------
 
@@ -78,17 +78,49 @@ function getUserStore(): any {
     return findStore('UserStore', ['getCurrentUser']);
 }
 
+function getFlux(): any | null {
+    try {
+        if (typeof revenge !== 'undefined') {
+            const flux = revenge?.discord?.flux;
+            if (flux) return flux;
+        }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const flux = bunny?.api?.flux;
+            if (flux?.intercept) {
+                return {
+                    onFluxEventDispatched: (event: string, listener: (payload: any) => any) =>
+                        flux.intercept((payload: any) => payload?.type === event ? listener(payload) : undefined),
+                };
+            }
+        }
+    } catch {}
+    try {
+        if (typeof vendetta !== 'undefined') {
+            const v: any = vendetta;
+            const fd = v?.metro?.common?.FluxDispatcher ?? v?.common?.FluxDispatcher;
+            if (fd?.addInterceptor) {
+                return {
+                    onFluxEventDispatched: (event: string, listener: (payload: any) => any) =>
+                        fd.addInterceptor((payload: any) => payload?.type === event ? listener(payload) : undefined),
+                };
+            }
+        }
+    } catch {}
+    return null;
+}
+
 function getDispatcher(): any | null {
     try {
         const metro = getMetro();
         const fd = metro?.findByProps?.('subscribe', 'dispatch') ?? metro?.common?.FluxDispatcher ?? null;
-        if (fd?.dispatch) return fd;
+        if (fd?.subscribe) return fd;
     } catch {}
     try {
-        if (typeof revenge !== 'undefined') {
-            const fd = revenge?.discord?.flux?.dispatcher;
-            if (fd?.dispatch) return fd;
-        }
+        const flux = getFlux();
+        const fd = flux?.dispatcher;
+        if (fd?.subscribe) return fd;
     } catch {}
     return null;
 }
@@ -183,30 +215,44 @@ const lastSeenRaw: Record<string, number> = {};
 // userId -> when we first saw them online this session.
 const seenOnlineAt = new Map<string, number>();
 
-function statusIsOnline(status: unknown): boolean {
-    // PRESENCE_UPDATE carries `status` as a string on current builds
-    // ('online' | 'idle' | 'dnd' | 'offline'); older shapes nest it.
-    const s = typeof status === 'string' ? status : (status as any)?.status;
-    return s === 'online' || s === 'idle' || s === 'dnd';
+function presenceStatus(payload: any): string | null {
+    const value = payload?.status ?? payload?.presence?.status ?? payload?.user?.status;
+    const raw = typeof value === 'string' ? value : value?.status;
+    if (typeof raw !== 'string') return null;
+    const status = raw.toLowerCase();
+    return ['online', 'idle', 'dnd', 'offline', 'invisible'].includes(status) ? status : null;
 }
+
+function statusIsOnline(status: string): boolean {
+    return status === 'online' || status === 'idle' || status === 'dnd';
+}
+
+let presenceEventsSeen = 0;
+let departuresRecorded = 0;
+let lastPresenceEventAt = 0;
 
 export function handlePresence(payload: any): boolean {
     try {
-        const userId = String(payload?.userId ?? payload?.user?.id ?? '');
-        if (!userId) return false;
-        const online = statusIsOnline(payload?.status);
+        const userId = String(payload?.userId ?? payload?.user_id ?? payload?.user?.id ?? payload?.presence?.user?.id ?? payload?.presence?.userId ?? '');
+        const status = presenceStatus(payload);
+        if (!userId || !status) return false;
         const now = Date.now();
-        if (online) {
+        presenceEventsSeen++;
+        lastPresenceEventAt = now;
+        if (statusIsOnline(status)) {
             if (!seenOnlineAt.has(userId)) seenOnlineAt.set(userId, now);
             return false;
         }
         // Offline/invisible departure: only record if we watched them online
-        // long enough this session.
+        // long enough this session. Clear the witness on every offline edge so
+        // a later reconnect starts a fresh observation window.
         const since = seenOnlineAt.get(userId);
+        seenOnlineAt.delete(userId);
         if (since == null || now - since < MIN_ONLINE_MS) return false;
         const prev = lastSeenRaw[userId] ?? 0;
         if (now - prev < MIN_ONLINE_MS) return false; // debounce flapping
         lastSeenRaw[userId] = now;
+        departuresRecorded++;
         if (cfg.notify) {
             const u = getUserStore()?.getUser?.(userId);
             toast((u?.globalName ?? u?.username ?? 'Someone') + ' went offline');
@@ -229,33 +275,92 @@ export function clearLastSeen() {
 
 // ---- Dispatcher hookup -------------------------------------------------------------
 
-let subscribed = false;
-let presenceHandler: ((p: any) => void) | null = null;
+let presenceCleanups: (() => void)[] = [];
+let cleanupApi: ((off: (() => void) | undefined) => void) | null = null;
 
-function subscribePresence(): boolean {
-    try {
-        const fd = getDispatcher();
-        if (!fd?.subscribe) return false;
-        presenceHandler = (p: any) => {
-            try { handlePresence(p); } catch {}
-        };
-        fd.subscribe('PRESENCE_UPDATE', presenceHandler);
-        subscribed = true;
-        return true;
-    } catch (e) {
-        hostError('subscribePresence failed', e);
-        return false;
+function registerPresenceCleanup(off: (() => void) | undefined) {
+    if (typeof off === 'function') {
+        presenceCleanups.push(off);
+        try { cleanupApi?.(off); } catch {}
     }
 }
 
-function unsubscribePresence() {
-    try {
-        if (subscribed && presenceHandler) {
-            getDispatcher()?.unsubscribe?.('PRESENCE_UPDATE', presenceHandler);
+function receivePresence(payload: any) {
+    const batches = Array.isArray(payload?.presences) ? payload.presences
+        : Array.isArray(payload?.updates) ? payload.updates
+        : Array.isArray(payload?.users) ? payload.users
+        : Array.isArray(payload) ? payload
+        : [payload];
+    for (const item of batches) {
+        try { handlePresence(item); } catch {}
+    }
+}
+
+function subscribePresence(): boolean {
+    if (presenceCleanups.length) return true;
+    const flux = getFlux();
+    const fd = getDispatcher();
+    const events = ['PRESENCE_UPDATES', 'PRESENCE_UPDATE'];
+    let installed = 0;
+    for (const event of events) {
+        const listener = (payload: any) => {
+            receivePresence(payload);
+            return payload;
+        };
+        try {
+            if (typeof flux?.onFluxEventDispatched === 'function') {
+                const off = flux.onFluxEventDispatched(event, listener);
+                if (typeof off === 'function') {
+                    registerPresenceCleanup(off);
+                    installed++;
+                    continue;
+                }
+                if (typeof flux.removeFluxEventListener === 'function') {
+                    registerPresenceCleanup(() => flux.removeFluxEventListener(event, listener));
+                    installed++;
+                    continue;
+                }
+            }
+        } catch (e) {
+            hostError('Revenge flux ' + event + ' hook failed', e);
         }
-    } catch {}
-    subscribed = false;
-    presenceHandler = null;
+        try {
+            if (typeof flux?.intercept === 'function') {
+                const off = flux.intercept((payload: any) => {
+                    if (payload?.type === event) return listener(payload);
+                    return undefined;
+                });
+                if (typeof off === 'function') {
+                    registerPresenceCleanup(off);
+                    installed++;
+                    continue;
+                }
+                if (typeof flux.removeInterceptor === 'function') {
+                    registerPresenceCleanup(() => flux.removeInterceptor(off));
+                    installed++;
+                    continue;
+                }
+            }
+        } catch (e) {
+            hostError('flux interceptor ' + event + ' hook failed', e);
+        }
+        try {
+            if (fd?.subscribe) {
+                fd.subscribe(event, listener);
+                registerPresenceCleanup(() => fd.unsubscribe?.(event, listener));
+                installed++;
+            }
+        } catch (e) {
+            hostError('subscribe ' + event + ' failed', e);
+        }
+    }
+    return installed > 0;
+}
+
+function unsubscribePresence() {
+    while (presenceCleanups.length) {
+        try { presenceCleanups.pop()?.(); } catch {}
+    }
 }
 
 // ---- Start / stop ---------------------------------------------------------------------
@@ -264,6 +369,7 @@ let cleanupFns: (() => void)[] = [];
 
 async function startNext(api: any) {
     jsonStorageApi = api?.jsonStorage ?? getStorage();
+    cleanupApi = typeof api?.cleanup === 'function' ? api.cleanup : null;
     await loadConfig();
     // Restore persisted last-seen times (only when persist is on; the
     // timestamps hold, the session witness maps do NOT — a restart means we
@@ -278,7 +384,7 @@ async function startNext(api: any) {
     } catch (e) {
         hostError('restore lastSeen failed', e);
     }
-    subscribePresence();
+    if (!subscribePresence()) hostError('no presence event API found; tracking is inactive');
 }
 
 async function stopNext() {
@@ -288,6 +394,7 @@ async function stopNext() {
     });
     cleanupFns = [];
     await persistConfig();
+    cleanupApi = null;
 }
 
 // ---- Settings UI -------------------------------------------------------------------------
@@ -352,6 +459,10 @@ function buildSettingsComponent() {
         }
         const [, force] = React.useState(0);
         const [q, setQ] = React.useState('');
+        React.useEffect(() => {
+            const timer = setInterval(() => force((n: number) => n + 1), 5000);
+            return () => clearInterval(timer);
+        }, []);
 
         const entries = Object.entries(getLastSeen())
             .map(([id, ts]) => {
@@ -365,7 +476,9 @@ function buildSettingsComponent() {
             el(View, { key: 'head', style: { paddingHorizontal: 14, paddingTop: 8 } },
                 el(Text, { style: { color: C.text, fontSize: 16, fontWeight: '800' } }, 'LastOnlineTracker'),
                 el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, 'Records when people go offline — departures you actually saw. Discord never shows this.'),
-                el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, 'A timestamp is only written after watching someone online for 15s+, so opening a server can\'t fake an exodus.')),
+                el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, 'A timestamp is only written after watching someone online for 15s+, so opening a server can\'t fake an exodus.'),
+                el(Text, { style: { color: presenceCleanups.length ? C.ok : C.danger, fontSize: 11, marginTop: 6 } }, presenceCleanups.length ? 'Tracking active · ' + presenceEventsSeen + ' presence updates · ' + departuresRecorded + ' departures' : 'Tracking inactive · no supported presence event hook found'),
+                lastPresenceEventAt ? el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 2 } }, 'Last presence event ' + relTime(lastPresenceEventAt)) : null),
         ];
 
         kids.push(el(View, { key: 'search', style: { paddingHorizontal: 14, marginTop: 8 } },
@@ -397,9 +510,10 @@ function buildSettingsComponent() {
 let __builtSettings: any = null;
 
 let __instance: any = {
+    jsonStorage: { load: true, default: { persist: true, notify: false, lastSeen: {} } },
     start: startNext,
     stop: stopNext,
-    settingsComponentLazy: function (props: any) {
+    SettingsComponent: function (props: any) {
         try {
             if (!__builtSettings) __builtSettings = buildSettingsComponent();
             if (__builtSettings) return __builtSettings(props);
@@ -423,6 +537,7 @@ __instance.__engine = {
         if (patch && typeof patch === 'object') Object.assign(cfg, patch);
     },
     MIN_ONLINE_MS,
+    getDiagnostics: () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt }),
 };
 
 if (typeof plugin === 'function') {
@@ -436,6 +551,8 @@ __instance.onLoad = function () {
 __instance.onUnload = function () {
     return __instance.stop?.();
 };
-__instance.settings = __instance.settingsComponentLazy;
+__instance.settings = __instance.SettingsComponent;
+__instance.settingsComponentLazy = __instance.SettingsComponent;
+__instance.__engine.getDiagnostics = () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt });
 
 export default __instance;
