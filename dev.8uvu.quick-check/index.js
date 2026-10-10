@@ -166,17 +166,53 @@ function popIt() {
   } catch {
   }
 }
+function settingsInk() {
+  var _a, _b, _c, _d, _e;
+  let dark = true;
+  try {
+    const tm = (_c = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.metro) == null ? void 0 : _b.findByProps) == null ? void 0 : _c.call(_b, "theme", "setTheme");
+    const t = (_e = (_d = tm == null ? void 0 : tm.theme) != null ? _d : tm == null ? void 0 : tm.resolvedTheme) != null ? _e : tm == null ? void 0 : tm.currentTheme;
+    if (t) dark = String(t).toLowerCase().includes("dark");
+  } catch {
+  }
+  return dark ? { text: "#ffffff", sub: "#9ba0a8" } : { text: "#060607", sub: "#5c5e66" };
+}
+function resolveDesign() {
+  var _a, _b, _c, _d;
+  try {
+    const g = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.discord) == null ? void 0 : _b.design;
+    const d = (_c = g == null ? void 0 : g.Design) != null ? _c : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
+  }
+  try {
+    const b = (_d = globalThis.bunny) == null ? void 0 : _d.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
+  }
+  return null;
+}
 function makeSettings() {
+  const ink = settingsInk();
   const React = react();
   const RN = rn();
   if (!React || !RN) return null;
   const { View, Text, ScrollView } = RN;
   const el = React.createElement;
+  const D = resolveDesign();
   return function Settings() {
+    if ((D == null ? void 0 : D.TableRowGroup) && (D == null ? void 0 : D.TableRow)) {
+      const rows = diagnosis().split("\n").map((text, i) => text.trim() ? el(D.TableRow, { key: "r" + i, label: text }) : el(View, { key: "g" + i, style: { height: 6 } }));
+      return el(
+        ScrollView,
+        { style: { flex: 1 } },
+        el(D.TableRowGroup, { title: "Quick Check" }, ...rows)
+      );
+    }
     return el(
       ScrollView,
       { style: { flex: 1 } },
-      el(View, { style: { padding: 12 } }, el(Text, null, diagnosis()))
+      el(View, { style: { padding: 12 } }, el(Text, { style: { color: ink.text, fontSize: 13 } }, diagnosis()))
     );
   };
 }
@@ -187,14 +223,14 @@ function SettingsComponent(props) {
     if (!_settings) {
       const React = react();
       const RN = rn();
-      if (React && (RN == null ? void 0 : RN.Text)) return React.createElement(RN.Text, null, "React resolved late \u2014 toggle the plugin off and on.");
+      if (React && (RN == null ? void 0 : RN.Text)) return React.createElement(RN.Text, { style: { color: settingsInk().text } }, "React resolved late \u2014 toggle the plugin off and on.");
       return null;
     }
     return _settings(props);
   } catch (e) {
     const React = react();
     const RN = rn();
-    if (React && (RN == null ? void 0 : RN.Text)) return React.createElement(RN.Text, null, "QuickCheck settings crashed: " + (e instanceof Error ? e.message : String(e)));
+    if (React && (RN == null ? void 0 : RN.Text)) return React.createElement(RN.Text, { style: { color: settingsInk().text } }, "QuickCheck settings crashed: " + (e instanceof Error ? e.message : String(e)));
     return null;
   }
 }

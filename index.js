@@ -196,7 +196,43 @@ function handlePayload(payload) {
   if (cleaned !== message.content) message.content = cleaned;
   return payload;
 }
+function settingsInk() {
+  var _a, _b, _c, _d, _e;
+  let dark = true;
+  try {
+    const tm = (_c = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.metro) == null ? void 0 : _b.findByProps) == null ? void 0 : _c.call(_b, "theme", "setTheme");
+    const t = (_e = (_d = tm == null ? void 0 : tm.theme) != null ? _d : tm == null ? void 0 : tm.resolvedTheme) != null ? _e : tm == null ? void 0 : tm.currentTheme;
+    if (t) dark = String(t).toLowerCase().includes("dark");
+  } catch {
+  }
+  return dark ? { text: "#ffffff", sub: "#9ba0a8", input: "#232428" } : { text: "#060607", sub: "#5c5e66", input: "#ebedef" };
+}
+function resolveDesign(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const candidates = [api == null ? void 0 : api.design, (_a = api == null ? void 0 : api.discord) == null ? void 0 : _a.design, (_c = (_b = api == null ? void 0 : api.unscoped) == null ? void 0 : _b.discord) == null ? void 0 : _c.design, (_d = api == null ? void 0 : api.unscoped) == null ? void 0 : _d.design];
+  for (const candidate of candidates) {
+    try {
+      const d = (_e = candidate == null ? void 0 : candidate.Design) != null ? _e : candidate;
+      if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {
+    }
+  }
+  try {
+    const g = (_g = (_f = globalThis.revenge) == null ? void 0 : _f.discord) == null ? void 0 : _g.design;
+    const d = (_h = g == null ? void 0 : g.Design) != null ? _h : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
+  }
+  try {
+    const b = (_i = globalThis.bunny) == null ? void 0 : _i.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
+  }
+  return null;
+}
 function makeSettingsComponent() {
+  const ink = settingsInk();
+  const D = resolveDesign();
   const React = getReact();
   if (!React) return () => null;
   const el = React.createElement.bind(React);
@@ -208,38 +244,31 @@ function makeSettingsComponent() {
       onPress: () => props.onValueChange(!props.value),
       style: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" }
     },
-    el(Text, { style: { flex: 1 } }, props.label),
-    el(Text, { style: { opacity: 0.7, marginLeft: 8 } }, props.value ? "On" : "Off")
+    el(Text, { style: { flex: 1, color: ink.text } }, props.label),
+    el(Text, { style: { color: ink.sub, marginLeft: 8 } }, props.value ? "On" : "Off")
   );
   function SwitchRow(props) {
-    var _a, _b;
-    let design = null;
-    try {
-      design = revenge.discord.design;
-    } catch {
+    if (D == null ? void 0 : D.TableSwitchRow) {
+      return el(D.TableSwitchRow, {
+        label: props.label,
+        subLabel: props.subLabel,
+        value: !!props.value,
+        onValueChange: props.onValueChange
+      });
     }
-    const Row = (_b = design == null ? void 0 : design.TableSwitchRow) != null ? _b : (_a = design == null ? void 0 : design.Design) == null ? void 0 : _a.TableSwitchRow;
-    if (Row) return el(Row, props, null);
     return el(SwitchRowFallback, props, null);
   }
   function RowGroup(props) {
-    var _a, _b;
-    let design = null;
-    try {
-      design = revenge.discord.design;
-    } catch {
-    }
-    const Group = (_b = design == null ? void 0 : design.TableRowGroup) != null ? _b : (_a = design == null ? void 0 : design.Design) == null ? void 0 : _a.TableRowGroup;
-    if (Group) return el(Group, { title: props.title }, ...props.children);
+    if (D == null ? void 0 : D.TableRowGroup) return el(D.TableRowGroup, { title: props.title, description: props.description }, ...props.children);
     return el(
       View,
       { style: { marginVertical: 8 } },
-      el(Text, { style: { fontWeight: "bold", padding: 12 } }, props.title),
+      el(Text, { style: { fontWeight: "bold", padding: 12, color: ink.text } }, props.title),
       ...props.children
     );
   }
   return function SettingsComponent2(props) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
     const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
     const [, force] = React.useState(0);
@@ -261,7 +290,7 @@ function makeSettingsComponent() {
         onPress: () => toggleMode(mode),
         style: { paddingVertical: 8, paddingHorizontal: 12 }
       },
-      el(Text, { style: { fontWeight: (settings == null ? void 0 : settings.mode) === mode ? "bold" : "normal" } }, label)
+      el(Text, { style: { fontWeight: (settings == null ? void 0 : settings.mode) === mode ? "bold" : "normal", color: ink.text } }, label)
     );
     return el(
       View,
@@ -281,16 +310,16 @@ function makeSettingsComponent() {
         el(View, { style: { flexDirection: "row", paddingVertical: 4 } }, btn("blacklist", "Blacklist mode"), btn("whitelist", "Whitelist mode")),
         el(
           Text,
-          { style: { paddingHorizontal: 16, opacity: 0.7 } },
+          { style: { paddingHorizontal: 16, color: ink.sub } },
           (settings == null ? void 0 : settings.mode) === "whitelist" ? "Only keep the query parameters listed below." : "Strip known tracking parameters (plus any custom ones below)."
         )
       ),
       el(
         RowGroup,
         { title: (settings == null ? void 0 : settings.mode) === "whitelist" ? "Whitelisted parameters" : "Extra blacklisted parameters" },
-        el(TextInput, {
+        el((_f = (_e = D == null ? void 0 : D.TextInput) != null ? _e : D == null ? void 0 : D.TextField) != null ? _f : TextInput, {
           placeholder: (settings == null ? void 0 : settings.mode) === "whitelist" ? "ref, q, \u2026" : "my_param, another_one, \u2026",
-          defaultValue: (settings == null ? void 0 : settings.mode) === "whitelist" ? (_e = settings == null ? void 0 : settings.customWhitelist) != null ? _e : "" : (_f = settings == null ? void 0 : settings.customBlacklist) != null ? _f : "",
+          defaultValue: (settings == null ? void 0 : settings.mode) === "whitelist" ? (_g = settings == null ? void 0 : settings.customWhitelist) != null ? _g : "" : (_h = settings == null ? void 0 : settings.customBlacklist) != null ? _h : "",
           onChangeText: (t) => {
             var _a2, _b2;
             return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(
@@ -298,7 +327,7 @@ function makeSettingsComponent() {
               (settings == null ? void 0 : settings.mode) === "whitelist" ? { customWhitelist: t } : { customBlacklist: t }
             );
           },
-          style: { padding: 8 }
+          style: { padding: 8, color: ink.text, backgroundColor: ink.input, borderRadius: 8 }
         })
       )
     );

@@ -41,38 +41,53 @@ function getMetro() {
   }
   return null;
 }
-function getReact() {
-  var _a, _b, _c, _d, _e, _f;
+function getReact(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  try {
+    const react = (_d = (_b = (_a = api == null ? void 0 : api.unscoped) == null ? void 0 : _a.react) == null ? void 0 : _b.React) != null ? _d : (_c = api == null ? void 0 : api.react) == null ? void 0 : _c.React;
+    if ((react == null ? void 0 : react.createElement) && (react == null ? void 0 : react.useState)) return react;
+  } catch {
+  }
   try {
     const m = getMetro();
-    const r = (_d = (_c = (_a = m == null ? void 0 : m.findByDisplayName) == null ? void 0 : _a.call(m, "React")) != null ? _c : (_b = m == null ? void 0 : m.findByProps) == null ? void 0 : _b.call(m, "createElement", "cloneElement")) != null ? _d : null;
+    const r = (_h = (_g = (_e = m == null ? void 0 : m.findByDisplayName) == null ? void 0 : _e.call(m, "React")) != null ? _g : (_f = m == null ? void 0 : m.findByProps) == null ? void 0 : _f.call(m, "createElement", "cloneElement")) != null ? _h : null;
     if (r) return r;
   } catch {
   }
   try {
-    if (typeof revenge !== "undefined") return (_f = (_e = revenge == null ? void 0 : revenge.react) == null ? void 0 : _e.React) != null ? _f : null;
+    if (typeof revenge !== "undefined") return (_j = (_i = revenge == null ? void 0 : revenge.react) == null ? void 0 : _i.React) != null ? _j : null;
   } catch {
   }
   return null;
 }
-function getRN() {
-  var _a, _b, _c, _d, _e, _f;
+function getRN(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  try {
+    const rn = (_d = (_b = (_a = api == null ? void 0 : api.unscoped) == null ? void 0 : _a.react) == null ? void 0 : _b.ReactNative) != null ? _d : (_c = api == null ? void 0 : api.react) == null ? void 0 : _c.ReactNative;
+    if ((rn == null ? void 0 : rn.View) && (rn == null ? void 0 : rn.Text)) return rn;
+  } catch {
+  }
   try {
     const m = getMetro();
-    const rn = (_d = (_c = (_a = m == null ? void 0 : m.findByDisplayName) == null ? void 0 : _a.call(m, "ReactNative")) != null ? _c : (_b = m == null ? void 0 : m.findByProps) == null ? void 0 : _b.call(m, "View", "Text", "TextInput")) != null ? _d : null;
+    const rn = (_h = (_g = (_e = m == null ? void 0 : m.findByDisplayName) == null ? void 0 : _e.call(m, "ReactNative")) != null ? _g : (_f = m == null ? void 0 : m.findByProps) == null ? void 0 : _f.call(m, "View", "Text", "TextInput")) != null ? _h : null;
     if (rn) return rn;
   } catch {
   }
   try {
-    if (typeof revenge !== "undefined") return (_f = (_e = revenge == null ? void 0 : revenge.react) == null ? void 0 : _e.ReactNative) != null ? _f : null;
+    if (typeof revenge !== "undefined") return (_j = (_i = revenge == null ? void 0 : revenge.react) == null ? void 0 : _i.ReactNative) != null ? _j : null;
   } catch {
   }
   return null;
 }
-function findStore(name, props) {
-  var _a, _b, _c, _d;
+function findStore(name, props, api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   try {
-    const s = typeof revenge !== "undefined" && ((_b = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores) || null;
+    const s = (_f = (_c = (_b = (_a = api == null ? void 0 : api.unscoped) == null ? void 0 : _a.discord) == null ? void 0 : _b.flux) == null ? void 0 : _c.Stores) != null ? _f : (_e = (_d = api == null ? void 0 : api.discord) == null ? void 0 : _d.flux) == null ? void 0 : _e.Stores;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const s = typeof revenge !== "undefined" && ((_h = (_g = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _g.flux) == null ? void 0 : _h.Stores) || null;
     if (s == null ? void 0 : s[name]) return s[name];
   } catch {
   }
@@ -90,26 +105,31 @@ function findStore(name, props) {
   }
   try {
     const v = typeof vendetta !== "undefined" ? vendetta : null;
-    if ((_d = (_c = v == null ? void 0 : v.metro) == null ? void 0 : _c.common) == null ? void 0 : _d[name]) return v.metro.common[name];
+    if ((_j = (_i = v == null ? void 0 : v.metro) == null ? void 0 : _i.common) == null ? void 0 : _j[name]) return v.metro.common[name];
   } catch {
   }
   return null;
 }
-function getUserStore() {
-  return findStore("UserStore", ["getCurrentUser"]);
+function getUserStore(api) {
+  return findStore("UserStore", ["getCurrentUser"], api);
 }
-function getFlux() {
-  var _a, _b, _c, _d, _e, _f;
+function getFlux(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  try {
+    const flux = (_d = (_b = (_a = api == null ? void 0 : api.unscoped) == null ? void 0 : _a.discord) == null ? void 0 : _b.flux) != null ? _d : (_c = api == null ? void 0 : api.discord) == null ? void 0 : _c.flux;
+    if (typeof (flux == null ? void 0 : flux.onFluxEventDispatched) === "function") return flux;
+  } catch {
+  }
   try {
     if (typeof revenge !== "undefined") {
-      const flux = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux;
+      const flux = (_e = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _e.flux;
       if (flux) return flux;
     }
   } catch {
   }
   try {
     if (typeof bunny !== "undefined") {
-      const flux = (_b = bunny == null ? void 0 : bunny.api) == null ? void 0 : _b.flux;
+      const flux = (_f = bunny == null ? void 0 : bunny.api) == null ? void 0 : _f.flux;
       if (flux == null ? void 0 : flux.intercept) {
         return {
           onFluxEventDispatched: (event, listener) => flux.intercept((payload) => (payload == null ? void 0 : payload.type) === event ? listener(payload) : void 0)
@@ -121,7 +141,7 @@ function getFlux() {
   try {
     if (typeof vendetta !== "undefined") {
       const v = vendetta;
-      const fd = (_f = (_d = (_c = v == null ? void 0 : v.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.FluxDispatcher) != null ? _f : (_e = v == null ? void 0 : v.common) == null ? void 0 : _e.FluxDispatcher;
+      const fd = (_j = (_h = (_g = v == null ? void 0 : v.metro) == null ? void 0 : _g.common) == null ? void 0 : _h.FluxDispatcher) != null ? _j : (_i = v == null ? void 0 : v.common) == null ? void 0 : _i.FluxDispatcher;
       if (fd == null ? void 0 : fd.addInterceptor) {
         return {
           onFluxEventDispatched: (event, listener) => fd.addInterceptor((payload) => (payload == null ? void 0 : payload.type) === event ? listener(payload) : void 0)
@@ -208,6 +228,7 @@ var cfg = {
   // toast when a tracked friend goes offline
 };
 var jsonStorageApi = null;
+var settingsChangedCb = null;
 async function loadConfig() {
   var _a, _b;
   try {
@@ -227,6 +248,7 @@ async function persistConfig() {
   } catch (e) {
     hostError("persistConfig failed", e);
   }
+  settingsChangedCb == null ? void 0 : settingsChangedCb();
 }
 var MIN_ONLINE_MS = 15e3;
 var lastSeenRaw = {};
@@ -269,7 +291,7 @@ function handlePresence(payload) {
       const u = (_l = (_k = getUserStore()) == null ? void 0 : _k.getUser) == null ? void 0 : _l.call(_k, userId);
       toast(((_n = (_m = u == null ? void 0 : u.globalName) != null ? _m : u == null ? void 0 : u.username) != null ? _n : "Someone") + " went offline");
     }
-    persistConfig();
+    void persistConfig();
     return true;
   } catch {
     return false;
@@ -280,8 +302,29 @@ function getLastSeen() {
 }
 function clearLastSeen() {
   for (const k of Object.keys(lastSeenRaw)) delete lastSeenRaw[k];
-  persistConfig();
+  void persistConfig();
 }
+function seedOnlineFromStore(api) {
+  try {
+    const store = findStore("PresenceStore", ["getStatus"], api);
+    const getter = typeof (store == null ? void 0 : store.getOnlineUserIds) === "function" ? store.getOnlineUserIds : typeof (store == null ? void 0 : store.getOnlineFriendIds) === "function" ? store.getOnlineFriendIds : null;
+    const ids = getter ? getter.call(store) : null;
+    if (!Array.isArray(ids)) return 0;
+    const now = Date.now();
+    let seeded = 0;
+    for (const id of ids) {
+      const key = String(id);
+      if (!seenOnlineAt.has(key)) {
+        seenOnlineAt.set(key, now);
+        seeded++;
+      }
+    }
+    return seeded;
+  } catch {
+    return 0;
+  }
+}
+var PRESENCE_EVENTS = ["PRESENCE_UPDATE", "PRESENCE_UPDATES"];
 var presenceCleanups = [];
 var cleanupApi = null;
 function registerPresenceCleanup(off) {
@@ -294,21 +337,22 @@ function registerPresenceCleanup(off) {
   }
 }
 function receivePresence(payload) {
-  const batches = Array.isArray(payload == null ? void 0 : payload.presences) ? payload.presences : Array.isArray(payload == null ? void 0 : payload.updates) ? payload.updates : Array.isArray(payload == null ? void 0 : payload.users) ? payload.users : Array.isArray(payload) ? payload : [payload];
-  for (const item of batches) {
-    try {
-      handlePresence(item);
-    } catch {
-    }
+  var _a, _b, _c, _d, _e;
+  const updates = Array.isArray(payload == null ? void 0 : payload.updates) ? payload.updates : Array.isArray(payload == null ? void 0 : payload.presences) ? payload.presences : Array.isArray(payload == null ? void 0 : payload.users) ? payload.users : Array.isArray(payload) ? payload : [payload];
+  for (const item of updates) {
+    const id = (_c = (_b = (_a = item == null ? void 0 : item.user) == null ? void 0 : _a.id) != null ? _b : item == null ? void 0 : item.userId) != null ? _c : item == null ? void 0 : item.user_id;
+    const clientStatus = (_e = (_d = item == null ? void 0 : item.clientStatus) != null ? _d : item == null ? void 0 : item.client_status) != null ? _e : null;
+    const status = typeof (item == null ? void 0 : item.status) === "string" ? item.status : clientStatus && Object.keys(clientStatus).length ? "online" : null;
+    if (id && status) handlePresence({ userId: String(id), status });
   }
+  settingsChangedCb == null ? void 0 : settingsChangedCb();
 }
-function subscribePresence() {
+function subscribePresence(api) {
   if (presenceCleanups.length) return true;
-  const flux = getFlux();
+  const flux = getFlux(api);
   const fd = getDispatcher();
-  const events = ["PRESENCE_UPDATES", "PRESENCE_UPDATE"];
   let installed = 0;
-  for (const event of events) {
+  for (const event of PRESENCE_EVENTS) {
     const listener = (payload) => {
       receivePresence(payload);
       return payload;
@@ -338,11 +382,6 @@ function subscribePresence() {
         });
         if (typeof off === "function") {
           registerPresenceCleanup(off);
-          installed++;
-          continue;
-        }
-        if (typeof flux.removeInterceptor === "function") {
-          registerPresenceCleanup(() => flux.removeInterceptor(off));
           installed++;
           continue;
         }
@@ -376,6 +415,13 @@ function unsubscribePresence() {
 }
 var cleanupFns = [];
 async function startNext(api) {
+  try {
+    await startPlugin(api);
+  } catch (e) {
+    hostError("start failed", e);
+  }
+}
+async function startPlugin(api) {
   var _a, _b, _c;
   jsonStorageApi = (_a = api == null ? void 0 : api.jsonStorage) != null ? _a : getStorage();
   cleanupApi = typeof (api == null ? void 0 : api.cleanup) === "function" ? api.cleanup : null;
@@ -390,7 +436,8 @@ async function startNext(api) {
   } catch (e) {
     hostError("restore lastSeen failed", e);
   }
-  if (!subscribePresence()) hostError("no presence event API found; tracking is inactive");
+  if (!subscribePresence(api)) hostError("no presence event API found; tracking is inactive");
+  seedOnlineFromStore(api);
 }
 async function stopNext() {
   unsubscribePresence();
@@ -403,6 +450,7 @@ async function stopNext() {
   cleanupFns = [];
   await persistConfig();
   cleanupApi = null;
+  settingsChangedCb = null;
 }
 function relTime(ts) {
   const diff = Date.now() - ts;
@@ -411,124 +459,202 @@ function relTime(ts) {
   if (diff < 864e5) return Math.floor(diff / 36e5) + "h ago";
   return Math.floor(diff / 864e5) + "d ago";
 }
-function buildSettingsComponent() {
-  const React = getReact();
-  const RN = getRN();
-  if (!React || !RN) return null;
-  const el = React.createElement;
-  const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null } = RN;
-  const isDark = (() => {
-    var _a, _b, _c, _d, _e;
+function isDarkTheme() {
+  var _a, _b, _c, _d;
+  try {
+    const tm = (_b = (_a = getMetro()) == null ? void 0 : _a.findByProps) == null ? void 0 : _b.call(_a, "theme", "setTheme");
+    const t = (_d = (_c = tm == null ? void 0 : tm.theme) != null ? _c : tm == null ? void 0 : tm.resolvedTheme) != null ? _d : tm == null ? void 0 : tm.currentTheme;
+    if (t) return String(t).toLowerCase().includes("dark");
+  } catch {
+  }
+  return true;
+}
+function resolveDesign(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const candidates = [api == null ? void 0 : api.design, (_a = api == null ? void 0 : api.discord) == null ? void 0 : _a.design, (_c = (_b = api == null ? void 0 : api.unscoped) == null ? void 0 : _b.discord) == null ? void 0 : _c.design, (_d = api == null ? void 0 : api.unscoped) == null ? void 0 : _d.design];
+  for (const candidate of candidates) {
     try {
-      const tm = (_c = findStore("ThemeManager", ["theme", "resolvedTheme"])) != null ? _c : (_b = (_a = getMetro()) == null ? void 0 : _a.findByProps) == null ? void 0 : _b.call(_a, "theme", "setTheme");
-      const t = (_e = (_d = tm == null ? void 0 : tm.theme) != null ? _d : tm == null ? void 0 : tm.resolvedTheme) != null ? _e : tm == null ? void 0 : tm.currentTheme;
-      if (t) return String(t).toLowerCase().includes("dark");
+      const d = (_e = candidate == null ? void 0 : candidate.Design) != null ? _e : candidate;
+      if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
     } catch {
     }
-    return true;
-  })();
-  const C = isDark ? { bg: "#111214", card: "#1a1b1e", text: "#ffffff", sub: "#9ba0a8", input: "#232428", chip: "#2b2d31", blurple: "#5865F2", danger: "#f04747", ok: "#23a55a" } : { bg: "#f2f3f5", card: "#ffffff", text: "#060607", sub: "#5c5e66", input: "#ebedef", chip: "#e3e5e8", blurple: "#5865F2", danger: "#d83c3e", ok: "#248046" };
-  function Card(props) {
-    const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
-    return el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 6, marginTop: 8 } }, ...kids);
   }
-  function Label(props) {
-    return el(Text, { style: { color: C.sub, fontSize: 12, fontWeight: "700", marginBottom: 4 } }, props.children);
+  try {
+    const g = (_g = (_f = globalThis.revenge) == null ? void 0 : _f.discord) == null ? void 0 : _g.design;
+    const d = (_h = g == null ? void 0 : g.Design) != null ? _h : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
   }
-  function Input(props) {
-    return el(TextInput, {
-      placeholderTextColor: C.sub,
-      ...props,
-      style: [{ backgroundColor: C.input, color: C.text, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginBottom: 8 }, props.style]
-    });
+  try {
+    const b = (_i = globalThis.bunny) == null ? void 0 : _i.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
   }
-  function Btn(props) {
-    return el(
-      Pressable,
-      { onPress: props.onPress, style: [{ backgroundColor: props.danger ? C.danger : C.blurple, borderRadius: 10, paddingVertical: 10, alignItems: "center", marginTop: 2 }, props.style] },
-      el(Text, { style: { color: "#ffffff", fontWeight: "700", fontSize: 14 } }, props.label)
-    );
-  }
-  function SwitchRow(props) {
-    const toggle = Switch ? el(Switch, { value: !!props.value, onValueChange: props.onValueChange, trackColor: { false: "rgba(128,128,128,0.35)", true: C.blurple }, thumbColor: "#ffffff" }) : el(Text, { style: { color: C.sub }, onPress: () => props.onValueChange(!props.value) }, props.value ? "On" : "Off");
+  return null;
+}
+function buildSettingsComponent(api) {
+  var _a, _b, _c, _d, _e, _f;
+  const React = getReact(api);
+  if (!(React == null ? void 0 : React.createElement) || typeof React.useState !== "function") return null;
+  const el = React.createElement;
+  const RN = (_a = getRN(api)) != null ? _a : {};
+  const View = (_b = RN.View) != null ? _b : "view";
+  const Text = (_c = RN.Text) != null ? _c : "text";
+  const Pressable = (_d = RN.Pressable) != null ? _d : View;
+  const ScrollView = (_e = RN.ScrollView) != null ? _e : View;
+  const Switch = (_f = RN.Switch) != null ? _f : null;
+  const C = isDarkTheme() ? { text: "#ffffff", sub: "#9ba0a8", card: "#1a1b1e", accent: "#5865F2", danger: "#f04747" } : { text: "#060607", sub: "#5c5e66", card: "#ffffff", accent: "#5865F2", danger: "#d83c3e" };
+  const kids = (c) => Array.isArray(c) ? c : c == null ? [] : [c];
+  const D = resolveDesign(api);
+  function Group(props) {
+    if (D == null ? void 0 : D.TableRowGroup) {
+      return el(D.TableRowGroup, { title: props.title, description: props.description }, ...kids(props.children));
+    }
     return el(
       View,
-      { style: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10 } },
-      el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, props.label),
-      toggle
+      { style: { marginTop: 16 } },
+      el(Text, { style: { color: C.text, fontSize: 15, fontWeight: "600", paddingHorizontal: 16, marginBottom: 4 } }, props.title),
+      props.description ? el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 6 } }, props.description) : null,
+      el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } }, ...kids(props.children))
+    );
+  }
+  function ToggleRow(props) {
+    if (D == null ? void 0 : D.TableSwitchRow) {
+      return el(D.TableSwitchRow, {
+        label: props.label,
+        subLabel: props.subLabel,
+        value: !!props.value,
+        onValueChange: props.onValueChange
+      });
+    }
+    const control = Switch ? el(Switch, {
+      value: !!props.value,
+      onValueChange: props.onValueChange,
+      accessibilityLabel: props.label,
+      trackColor: { false: "rgba(128,128,128,0.35)", true: C.accent },
+      thumbColor: "#ffffff"
+    }) : el(Text, {
+      accessibilityLabel: props.label,
+      style: { color: C.accent, fontWeight: "700" },
+      onPress: () => props.onValueChange(!props.value)
+    }, props.value ? "On" : "Off");
+    return el(
+      View,
+      { style: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16 } },
+      el(
+        View,
+        { style: { flex: 1, paddingRight: 12 } },
+        el(Text, { style: { color: C.text, fontSize: 16 } }, props.label),
+        props.subLabel ? el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null
+      ),
+      control
+    );
+  }
+  function InfoRow(props) {
+    if (D == null ? void 0 : D.TableRow) {
+      return el(D.TableRow, {
+        label: props.label,
+        subLabel: props.subLabel,
+        variant: props.danger ? "danger" : void 0,
+        onPress: props.onPress
+      });
+    }
+    return el(
+      Pressable,
+      {
+        onPress: props.onPress,
+        accessibilityLabel: props.label,
+        style: { paddingVertical: 10, paddingHorizontal: 16 }
+      },
+      el(Text, { style: { color: props.danger ? C.danger : C.text, fontSize: 16 } }, props.label),
+      props.subLabel ? el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null
     );
   }
   return function LastOnlineSettings(props) {
-    var _a;
-    if (jsonStorageApi == null && ((_a = props == null ? void 0 : props.api) == null ? void 0 : _a.jsonStorage)) {
-      jsonStorageApi = props.api.jsonStorage;
-    }
+    var _a2, _b2, _c2, _d2, _e2, _f2;
+    const settingsApi = (_a2 = props == null ? void 0 : props.api) != null ? _a2 : api;
+    const storage = (_b2 = settingsApi == null ? void 0 : settingsApi.jsonStorage) != null ? _b2 : jsonStorageApi;
+    jsonStorageApi = storage;
     const [, force] = React.useState(0);
-    const [q, setQ] = React.useState("");
     React.useEffect(() => {
-      const timer = setInterval(() => force((n) => n + 1), 5e3);
-      return () => clearInterval(timer);
+      settingsChangedCb = () => force((n) => n + 1);
+      return () => {
+        settingsChangedCb = null;
+      };
     }, []);
-    const entries = Object.entries(getLastSeen()).map(([id, ts]) => {
-      var _a2, _b, _c, _d, _e;
-      const u = (_b = (_a2 = getUserStore()) == null ? void 0 : _a2.getUser) == null ? void 0 : _b.call(_a2, id);
-      return { id, ts, name: String((_e = (_d = (_c = u == null ? void 0 : u.globalName) != null ? _c : u == null ? void 0 : u.global_name) != null ? _d : u == null ? void 0 : u.username) != null ? _e : "ID " + id) };
-    }).filter((e) => !q.trim() || e.name.toLowerCase().includes(q.trim().toLowerCase())).sort((a, b) => b.ts - a.ts);
-    const kids = [
+    let stored = {};
+    try {
+      stored = (_e2 = (_d2 = (_c2 = storage == null ? void 0 : storage.use) == null ? void 0 : _c2.call(storage)) != null ? _d2 : storage == null ? void 0 : storage.cache) != null ? _e2 : {};
+    } catch {
+      stored = (_f2 = storage == null ? void 0 : storage.cache) != null ? _f2 : {};
+    }
+    const persist = typeof (stored == null ? void 0 : stored.persist) === "boolean" ? stored.persist : cfg.persist;
+    const notify = typeof (stored == null ? void 0 : stored.notify) === "boolean" ? stored.notify : cfg.notify;
+    const entries = Object.entries(getLastSeen()).filter(([, ts]) => typeof ts === "number" && ts > 0).sort((a, b) => b[1] - a[1]).slice(0, 80).map(([id, ts]) => {
+      var _a3, _b3, _c3, _d3, _e3;
+      const user = (_b3 = (_a3 = getUserStore(settingsApi)) == null ? void 0 : _a3.getUser) == null ? void 0 : _b3.call(_a3, id);
+      return { id, ts, name: String((_e3 = (_d3 = (_c3 = user == null ? void 0 : user.globalName) != null ? _c3 : user == null ? void 0 : user.global_name) != null ? _d3 : user == null ? void 0 : user.username) != null ? _e3 : "User " + id) };
+    });
+    const tracking = presenceCleanups.length > 0;
+    return el(
+      ScrollView,
+      { contentContainerStyle: { paddingBottom: 24 } },
       el(
-        View,
-        { key: "head", style: { paddingHorizontal: 14, paddingTop: 8 } },
-        el(Text, { style: { color: C.text, fontSize: 16, fontWeight: "800" } }, "LastOnlineTracker"),
-        el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, "Records when people go offline \u2014 departures you actually saw. Discord never shows this."),
-        el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, "A timestamp is only written after watching someone online for 15s+, so opening a server can't fake an exodus."),
-        el(Text, { style: { color: presenceCleanups.length ? C.ok : C.danger, fontSize: 11, marginTop: 6 } }, presenceCleanups.length ? "Tracking active \xB7 " + presenceEventsSeen + " presence updates \xB7 " + departuresRecorded + " departures" : "Tracking inactive \xB7 no supported presence event hook found"),
-        lastPresenceEventAt ? el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 2 } }, "Last presence event " + relTime(lastPresenceEventAt)) : null
+        Group,
+        { title: "LastOnlineTracker", description: "Records when friends go offline, from presence changes this plugin witnessed." },
+        el(ToggleRow, {
+          label: "Keep last-seen times across restarts",
+          subLabel: "Save recorded departures on this device.",
+          value: persist,
+          onValueChange: (value) => {
+            var _a3;
+            cfg.persist = value;
+            void ((_a3 = storage == null ? void 0 : storage.set) == null ? void 0 : _a3.call(storage, { persist: value, lastSeen: value ? getLastSeen() : {} }));
+            settingsChangedCb == null ? void 0 : settingsChangedCb();
+          }
+        }),
+        el(ToggleRow, {
+          label: "Offline notifications",
+          subLabel: "Show a notification when someone goes offline.",
+          value: notify,
+          onValueChange: (value) => {
+            var _a3;
+            cfg.notify = value;
+            void ((_a3 = storage == null ? void 0 : storage.set) == null ? void 0 : _a3.call(storage, { notify: value }));
+            settingsChangedCb == null ? void 0 : settingsChangedCb();
+          }
+        })
+      ),
+      el(
+        Group,
+        { title: "Last online", description: "Only departures observed after at least 15 seconds online are recorded." },
+        ...entries.length ? entries.map((entry) => el(InfoRow, {
+          key: entry.id,
+          label: entry.name,
+          subLabel: "Offline " + relTime(entry.ts)
+        })) : [el(InfoRow, {
+          key: "empty",
+          label: "No departures recorded yet",
+          subLabel: tracking ? "Tracking is active; this list fills as friends go offline." : "Tracking is inactive: presence events are not reaching the plugin."
+        })]
+      ),
+      el(
+        Group,
+        { title: "History controls" },
+        el(InfoRow, {
+          label: "Clear last-online history",
+          subLabel: "Remove every saved departure from this device.",
+          danger: true,
+          onPress: () => {
+            clearLastSeen();
+          }
+        }),
+        el(InfoRow, {
+          label: tracking ? "Tracking active" : "Tracking inactive",
+          subLabel: `${presenceEventsSeen} presence updates \xB7 ${departuresRecorded} departures recorded`
+        })
       )
-    ];
-    kids.push(el(
-      View,
-      { key: "search", style: { paddingHorizontal: 14, marginTop: 8 } },
-      el(Label, null, "Search recorded people"),
-      el(Input, { placeholder: "name\u2026", value: q, onChangeText: (t) => setQ(t) })
-    ));
-    kids.push(el(
-      Card,
-      { key: "list" },
-      entries.length === 0 ? el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 14, paddingVertical: 10 } }, "Nobody recorded yet \u2014 it fills as you watch friends go offline.") : entries.slice(0, 80).map((e) => el(
-        View,
-        { key: e.id, style: { paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.input, flexDirection: "row", justifyContent: "space-between" } },
-        el(Text, { style: { color: C.text, fontSize: 14, flex: 1 } }, e.name),
-        el(Text, { style: { color: C.sub, fontSize: 13 } }, "offline " + relTime(e.ts))
-      ))
-    ));
-    kids.push(el(
-      Card,
-      { key: "opts" },
-      el(SwitchRow, { label: "Keep last-seen times across restarts", value: cfg.persist, onValueChange: (v) => {
-        cfg.persist = v;
-        persistConfig();
-        force((n) => n + 1);
-      } }),
-      el(SwitchRow, { label: "Toast when someone goes offline", value: cfg.notify, onValueChange: (v) => {
-        cfg.notify = v;
-        persistConfig();
-        force((n) => n + 1);
-      } })
-    ));
-    kids.push(el(
-      View,
-      { key: "clear", style: { paddingHorizontal: 12, marginTop: 8 } },
-      el(Btn, {
-        label: "Clear all recorded times",
-        danger: true,
-        onPress: () => {
-          clearLastSeen();
-          force((n) => n + 1);
-          toast("Last-seen times cleared");
-        }
-      })
-    ));
-    return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg } }, ...kids);
+    );
   };
 }
 var __builtSettings = null;
@@ -537,18 +663,18 @@ var __instance = {
   start: startNext,
   stop: stopNext,
   SettingsComponent: function(props) {
-    var _a, _b;
+    var _a, _b, _c, _d;
+    const api = (_b = (_a = props == null ? void 0 : props.api) != null ? _a : jsonStorageApi) != null ? _b : null;
+    const React = getReact(api);
+    if (!(React == null ? void 0 : React.createElement)) return null;
     try {
-      if (!__builtSettings) __builtSettings = buildSettingsComponent();
-      if (__builtSettings) return __builtSettings(props);
+      if (!__builtSettings) __builtSettings = buildSettingsComponent(api);
+      if (__builtSettings) return React.createElement(__builtSettings, { api });
     } catch (e) {
       hostError("settings build failed", e);
     }
-    const React = getReact();
-    const RN = getRN();
-    const el = React == null ? void 0 : React.createElement;
-    if (el && RN) return el((_a = RN.View) != null ? _a : "view", null, el((_b = RN.Text) != null ? _b : "text", null, "LastOnlineTracker: UI unavailable on this host"));
-    return null;
+    const RN = (_c = getRN(api)) != null ? _c : {};
+    return React.createElement((_d = RN.Text) != null ? _d : "text", null, "LastOnlineTracker settings could not load on this build.");
   }
 };
 __instance.__engine = {
@@ -576,6 +702,5 @@ __instance.onUnload = function() {
 };
 __instance.settings = __instance.SettingsComponent;
 __instance.settingsComponentLazy = __instance.SettingsComponent;
-__instance.__engine.getDiagnostics = () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt });
 var index_default = __instance;
 ; return (module.exports && module.exports.default) || module.exports; })()

@@ -82,7 +82,7 @@ function probeBunny() {
   }
 }
 function probeVendetta() {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _o, _p, _q;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
   try {
     if (typeof vendetta === "undefined") return;
     const v = vendetta;
@@ -90,10 +90,10 @@ function probeVendetta() {
     push("vendetta.metro.common.React", !!((_c = (_b = v == null ? void 0 : v.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React));
     push("vendetta.metro.common.FluxDispatcher", !!((_e = (_d = v == null ? void 0 : v.metro) == null ? void 0 : _d.common) == null ? void 0 : _e.FluxDispatcher));
     push("dispatcher.addInterceptor", typeof ((_j = (_i = (_g = (_f = v == null ? void 0 : v.metro) == null ? void 0 : _f.common) == null ? void 0 : _g.FluxDispatcher) != null ? _i : (_h = v == null ? void 0 : v.common) == null ? void 0 : _h.FluxDispatcher) == null ? void 0 : _j.addInterceptor));
-    push("vendetta.ui.toasts.showToast", typeof ((_l = (_k = v == null ? void 0 : v.ui) == null ? void 0 : _k.toasts) == null ? void 0 : _l.showToast));
-    push("vendetta.metro.findByStoreName", typeof ((_o = v == null ? void 0 : v.metro) == null ? void 0 : _o.findByStoreName));
+    push("vendetta.ui.toasts.showToast", typeof ((_o = (_l = (_k = v == null ? void 0 : v.ui) == null ? void 0 : _k.toasts) == null ? void 0 : _l.showToast) != null ? _o : (_n = (_m = v == null ? void 0 : v.common) == null ? void 0 : _m.toasts) == null ? void 0 : _n.showToast));
+    push("vendetta.metro.findByStoreName", typeof ((_p = v == null ? void 0 : v.metro) == null ? void 0 : _p.findByStoreName));
     try {
-      const us = (_q = (_p = v == null ? void 0 : v.metro) == null ? void 0 : _p.findByStoreName) == null ? void 0 : _q.call(_p, "UserStore");
+      const us = (_r = (_q = v == null ? void 0 : v.metro) == null ? void 0 : _q.findByStoreName) == null ? void 0 : _r.call(_q, "UserStore");
       push("metro UserStore", !!us);
     } catch {
       push("metro UserStore", "finder threw");
@@ -165,23 +165,66 @@ function reactNative() {
   }
   return _RN;
 }
+function settingsInk() {
+  var _a, _b, _c, _d, _e;
+  let dark = true;
+  try {
+    const tm = (_c = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.metro) == null ? void 0 : _b.findByProps) == null ? void 0 : _c.call(_b, "theme", "setTheme");
+    const t = (_e = (_d = tm == null ? void 0 : tm.theme) != null ? _d : tm == null ? void 0 : tm.resolvedTheme) != null ? _e : tm == null ? void 0 : tm.currentTheme;
+    if (t) dark = String(t).toLowerCase().includes("dark");
+  } catch {
+  }
+  return dark ? { text: "#ffffff", sub: "#9ba0a8" } : { text: "#060607", sub: "#5c5e66" };
+}
+function resolveDesign() {
+  var _a, _b, _c, _d;
+  try {
+    const g = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.discord) == null ? void 0 : _b.design;
+    const d = (_c = g == null ? void 0 : g.Design) != null ? _c : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
+  }
+  try {
+    const b = (_d = globalThis.bunny) == null ? void 0 : _d.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
+  }
+  return null;
+}
 function makeSettings() {
+  const ink = settingsInk();
   const React = react();
   const RN = reactNative();
   if (!React || !RN) return null;
   const { View, Text, ScrollView } = RN;
   const el = React.createElement;
+  const D = resolveDesign();
   return function Settings() {
+    try {
+      if ((D == null ? void 0 : D.TableRowGroup) && (D == null ? void 0 : D.TableRow)) {
+        return el(
+          ScrollView,
+          { style: { flex: 1 } },
+          el(
+            D.TableRowGroup,
+            { title: "Host" },
+            el(D.TableRow, { key: "summary", label: "Host probe", subLabel: summary() }),
+            ...rows.map((r, i) => el(D.TableRow, { key: i, label: r.key, subLabel: r.value }))
+          )
+        );
+      }
+    } catch {
+    }
     return el(
       ScrollView,
       { style: { flex: 1 } },
-      el(View, { style: { padding: 12 } }, el(Text, { style: { fontWeight: "bold", marginBottom: 8 } }, summary())),
+      el(View, { style: { padding: 12 } }, el(Text, { style: { fontWeight: "bold", marginBottom: 8, color: ink.text } }, summary())),
       rows.map(
         (r, i) => el(
           View,
           { key: i, style: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 } },
-          el(Text, { style: { flex: 1 } }, r.key),
-          el(Text, { style: { opacity: 0.7 } }, r.value)
+          el(Text, { style: { flex: 1, color: ink.text } }, r.key),
+          el(Text, { style: { color: ink.sub } }, r.value)
         )
       )
     );
@@ -241,7 +284,12 @@ function runProbe(startApi) {
 var _settings = null;
 function SettingsComponent(props) {
   if (!_settings) _settings = makeSettings();
-  if (!_settings) return null;
+  if (!_settings) {
+    const React0 = react();
+    const RN0 = reactNative();
+    if (React0 && (RN0 == null ? void 0 : RN0.Text)) return React0.createElement(RN0.Text, { style: { color: settingsInk().text, padding: 12 } }, "HostProbe settings could not load on this build.");
+    return null;
+  }
   const React = react();
   return _settings(props);
 }

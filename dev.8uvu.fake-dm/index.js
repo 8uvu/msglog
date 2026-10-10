@@ -798,11 +798,27 @@ function hexToInt(hex) {
   if (!/^[0-9a-fA-F]{6}$/.test(m)) return void 0;
   return parseInt(m, 16);
 }
+function resolveDesign() {
+  var _a, _b, _c, _d;
+  try {
+    const g = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.discord) == null ? void 0 : _b.design;
+    const d = (_c = g == null ? void 0 : g.Design) != null ? _c : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
+  }
+  try {
+    const b = (_d = globalThis.bunny) == null ? void 0 : _d.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
+  }
+  return null;
+}
 function buildSettingsComponent() {
   const React = getReact();
   const RN = getRN();
   if (!React || !RN) return null;
   const el = React.createElement;
+  const D = resolveDesign();
   const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null } = RN;
   const isDark = (() => {
     var _a, _b, _c, _d, _e;
@@ -817,6 +833,7 @@ function buildSettingsComponent() {
   const C = isDark ? { bg: "#111214", card: "#1a1b1e", text: "#ffffff", sub: "#9ba0a8", input: "#232428", chip: "#2b2d31", blurple: "#5865F2", danger: "#f04747", ok: "#23a55a", amber: "#faa61a" } : { bg: "#f2f3f5", card: "#ffffff", text: "#060607", sub: "#5c5e66", input: "#ebedef", chip: "#e3e5e8", blurple: "#5865F2", danger: "#d83c3e", ok: "#248046", amber: "#c28516" };
   function Card(props) {
     const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
+    if (D == null ? void 0 : D.TableRowGroup) return el(D.TableRowGroup, { title: props.title }, ...kids);
     return el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 6, marginTop: 8 } }, ...kids);
   }
   function Row(props) {
@@ -826,6 +843,15 @@ function buildSettingsComponent() {
     return el(Text, { style: { color: C.sub, fontSize: 12, fontWeight: "700", marginBottom: 4 } }, props.children);
   }
   function Input(props) {
+    var _a, _b;
+    const NativeInput = (_b = (_a = D == null ? void 0 : D.TextInput) != null ? _a : D == null ? void 0 : D.TextField) != null ? _b : null;
+    if (NativeInput) {
+      return el(NativeInput, {
+        placeholderTextColor: C.sub,
+        ...props,
+        style: [{ color: C.text, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginBottom: 8 }, props.style]
+      });
+    }
     return el(TextInput, {
       placeholderTextColor: C.sub,
       ...props,
@@ -840,6 +866,14 @@ function buildSettingsComponent() {
     );
   }
   function SwitchRow(props) {
+    if (D == null ? void 0 : D.TableSwitchRow) {
+      return el(D.TableSwitchRow, {
+        label: props.label,
+        subLabel: props.subLabel,
+        value: !!props.value,
+        onValueChange: props.onValueChange
+      });
+    }
     const toggle = Switch ? el(Switch, { value: !!props.value, onValueChange: props.onValueChange, trackColor: { false: "rgba(128,128,128,0.35)", true: C.blurple }, thumbColor: "#ffffff" }) : el(Text, { style: { color: C.sub }, onPress: () => props.onValueChange(!props.value) }, props.value ? "On" : "Off");
     return el(
       View,

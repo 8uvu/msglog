@@ -41,30 +41,74 @@ function getMetro() {
   }
   return null;
 }
-function getReact() {
-  var _a, _b, _c, _d, _e, _f;
+function getReact(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v;
   try {
-    const m = getMetro();
-    const r = (_d = (_c = (_a = m == null ? void 0 : m.findByDisplayName) == null ? void 0 : _a.call(m, "React")) != null ? _c : (_b = m == null ? void 0 : m.findByProps) == null ? void 0 : _b.call(m, "createElement", "cloneElement")) != null ? _d : null;
-    if (r) return r;
+    const react = (_e = (_d = (_b = (_a = api == null ? void 0 : api.unscoped) == null ? void 0 : _a.react) == null ? void 0 : _b.React) != null ? _d : (_c = api == null ? void 0 : api.react) == null ? void 0 : _c.React) != null ? _e : null;
+    if ((react == null ? void 0 : react.createElement) && (react == null ? void 0 : react.useState)) return react;
   } catch {
   }
   try {
-    if (typeof revenge !== "undefined") return (_f = (_e = revenge == null ? void 0 : revenge.react) == null ? void 0 : _e.React) != null ? _f : null;
+    if (typeof revenge !== "undefined") {
+      const react = (_i = (_h = (_f = revenge == null ? void 0 : revenge.react) == null ? void 0 : _f.React) != null ? _h : (_g = revenge == null ? void 0 : revenge.react) == null ? void 0 : _g.ReactModule) != null ? _i : null;
+      if ((react == null ? void 0 : react.createElement) && (react == null ? void 0 : react.useState)) return react;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const react = (_o = (_n = (_l = bunny == null ? void 0 : bunny.React) != null ? _l : (_k = (_j = bunny == null ? void 0 : bunny.metro) == null ? void 0 : _j.common) == null ? void 0 : _k.React) != null ? _n : (_m = bunny == null ? void 0 : bunny.common) == null ? void 0 : _m.React) != null ? _o : null;
+      if ((react == null ? void 0 : react.createElement) && (react == null ? void 0 : react.useState)) return react;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const react = (_t = (_s = (_q = (_p = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _p.common) == null ? void 0 : _q.React) != null ? _s : (_r = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _r.React) != null ? _t : null;
+      if ((react == null ? void 0 : react.createElement) && (react == null ? void 0 : react.useState)) return react;
+    }
+  } catch {
+  }
+  try {
+    const metro = getMetro();
+    const react = (_v = (_u = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _u.call(metro, "createElement", "useState")) != null ? _v : null;
+    if (react) return react;
   } catch {
   }
   return null;
 }
-function getRN() {
-  var _a, _b, _c, _d, _e, _f;
+function getRN(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v;
   try {
-    const m = getMetro();
-    const rn = (_d = (_c = (_a = m == null ? void 0 : m.findByDisplayName) == null ? void 0 : _a.call(m, "ReactNative")) != null ? _c : (_b = m == null ? void 0 : m.findByProps) == null ? void 0 : _b.call(m, "View", "Text", "TextInput")) != null ? _d : null;
-    if (rn) return rn;
+    const rn = (_e = (_d = (_b = (_a = api == null ? void 0 : api.unscoped) == null ? void 0 : _a.react) == null ? void 0 : _b.ReactNative) != null ? _d : (_c = api == null ? void 0 : api.react) == null ? void 0 : _c.ReactNative) != null ? _e : null;
+    if ((rn == null ? void 0 : rn.View) && (rn == null ? void 0 : rn.Text)) return rn;
   } catch {
   }
   try {
-    if (typeof revenge !== "undefined") return (_f = (_e = revenge == null ? void 0 : revenge.react) == null ? void 0 : _e.ReactNative) != null ? _f : null;
+    if (typeof revenge !== "undefined") {
+      const rn = (_i = (_h = (_f = revenge == null ? void 0 : revenge.react) == null ? void 0 : _f.ReactNative) != null ? _h : (_g = revenge == null ? void 0 : revenge.react) == null ? void 0 : _g.native) != null ? _i : null;
+      if ((rn == null ? void 0 : rn.View) && (rn == null ? void 0 : rn.Text)) return rn;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const rn = (_o = (_n = (_l = bunny == null ? void 0 : bunny.ReactNative) != null ? _l : (_k = (_j = bunny == null ? void 0 : bunny.metro) == null ? void 0 : _j.common) == null ? void 0 : _k.ReactNative) != null ? _n : (_m = bunny == null ? void 0 : bunny.common) == null ? void 0 : _m.ReactNative) != null ? _o : null;
+      if ((rn == null ? void 0 : rn.View) && (rn == null ? void 0 : rn.Text)) return rn;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const rn = (_t = (_s = (_q = (_p = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _p.common) == null ? void 0 : _q.ReactNative) != null ? _s : (_r = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _r.ReactNative) != null ? _t : null;
+      if ((rn == null ? void 0 : rn.View) && (rn == null ? void 0 : rn.Text)) return rn;
+    }
+  } catch {
+  }
+  try {
+    const metro = getMetro();
+    const rn = (_v = (_u = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _u.call(metro, "View", "Text", "TextInput")) != null ? _v : null;
+    if (rn) return rn;
   } catch {
   }
   return null;
@@ -85,44 +129,6 @@ function hostError(msg, e) {
   } catch {
   }
 }
-function getActions() {
-  var _a, _b, _c, _d, _e;
-  try {
-    if (typeof revenge !== "undefined") {
-      const a = (_a = revenge.discord) == null ? void 0 : _a.actions;
-      if (a) return a;
-    }
-  } catch {
-  }
-  try {
-    if (typeof bunny !== "undefined") {
-      const b = bunny;
-      const a = ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.toasts) || ((_e = (_d = b.api) == null ? void 0 : _d.actions) == null ? void 0 : _e.ToastActionCreators);
-      if (a) return a;
-    }
-  } catch {
-  }
-  return null;
-}
-function toast(content) {
-  var _a, _b, _c, _d, _e, _f;
-  const text = String(content != null ? content : "");
-  try {
-    const actions = getActions();
-    const open = (_b = (_a = actions == null ? void 0 : actions.ToastActionCreators) == null ? void 0 : _a.open) != null ? _b : actions == null ? void 0 : actions.open;
-    if (typeof open === "function") {
-      open({ key: "spoofer-" + Date.now(), content: text });
-      return;
-    }
-  } catch {
-  }
-  try {
-    const RN = getRN();
-    (_f = (_c = RN == null ? void 0 : RN.ToastAndroid) == null ? void 0 : _c.show) == null ? void 0 : _f.call(_c, text, (_e = (_d = RN == null ? void 0 : RN.ToastAndroid) == null ? void 0 : _d.SHORT) != null ? _e : 0);
-  } catch {
-  }
-  hostError("no toast channel available");
-}
 var PLATFORMS = [
   { key: "desktop", label: "Desktop", browser: "Discord Client" },
   { key: "web", label: "Web", browser: "Discord Web" },
@@ -141,14 +147,17 @@ var cfg = {
   platform: "desktop"
 };
 var jsonStorageApi = null;
+var settingsChangedCb = null;
+function refreshConfig(data) {
+  if (!data || typeof data !== "object") return;
+  if (typeof data.enabled === "boolean") cfg.enabled = data.enabled;
+  if (typeof data.platform === "string" && platformProps(data.platform)) cfg.platform = data.platform;
+}
 async function loadConfig() {
   var _a, _b;
   try {
     const data = (_b = await ((_a = jsonStorageApi == null ? void 0 : jsonStorageApi.get) == null ? void 0 : _a.call(jsonStorageApi))) != null ? _b : {};
-    if (data && typeof data === "object") {
-      if (typeof data.enabled === "boolean") cfg.enabled = data.enabled;
-      if (typeof data.platform === "string" && platformProps(data.platform)) cfg.platform = data.platform;
-    }
+    refreshConfig(data);
   } catch (e) {
     hostError("loadConfig failed", e);
   }
@@ -162,26 +171,25 @@ async function persistConfig() {
   }
 }
 function refreshConfigFromStorage() {
-  var _a, _b;
+  var _a;
   try {
-    const data = (_b = (_a = jsonStorageApi == null ? void 0 : jsonStorageApi.use) == null ? void 0 : _a.call(jsonStorageApi)) != null ? _b : null;
-    if (data && typeof data === "object") {
-      if (typeof data.enabled === "boolean") cfg.enabled = data.enabled;
-      if (typeof data.platform === "string" && platformProps(data.platform)) cfg.platform = data.platform;
-    }
+    refreshConfig((_a = jsonStorageApi == null ? void 0 : jsonStorageApi.cache) != null ? _a : null);
   } catch {
   }
 }
 async function updateConfig(patch) {
   if (!patch || typeof patch !== "object") return;
-  if (typeof patch.enabled === "boolean") cfg.enabled = patch.enabled;
-  if (typeof patch.platform === "string" && platformProps(patch.platform)) cfg.platform = patch.platform;
+  const next = { ...cfg };
+  if (typeof patch.enabled === "boolean") next.enabled = patch.enabled;
+  if (typeof patch.platform === "string" && platformProps(patch.platform)) next.platform = patch.platform;
+  cfg = next;
   await persistConfig();
   if (cfg.enabled) {
     if (!installPatch()) hostError("no gateway identify surface found; spoofer inactive");
   } else {
     uninstallPatch();
   }
+  settingsChangedCb == null ? void 0 : settingsChangedCb();
 }
 var activePatch = null;
 function mergeIdentifyProps(original) {
@@ -198,7 +206,6 @@ function patchTarget(target, method, describe) {
     const original = target == null ? void 0 : target[method];
     if (typeof original !== "function") return null;
     const owner = target;
-    let patched = original;
     const wrapped = function(...args) {
       try {
         if (cfg.enabled && args.length >= 1 && args[0] && typeof args[0] === "object" && !Array.isArray(args[0])) {
@@ -218,8 +225,6 @@ function patchTarget(target, method, describe) {
     } catch {
     }
     owner[method] = wrapped;
-    patched = wrapped;
-    void patched;
     return {
       describe,
       restore: () => {
@@ -316,9 +321,30 @@ function patchResultTarget(target, method) {
 }
 var cleanupFns = [];
 async function startNext(api) {
+  try {
+    await startPlugin(api);
+  } catch (e) {
+    hostError("start failed", e);
+  }
+}
+async function startPlugin(api) {
   var _a;
   jsonStorageApi = (_a = api == null ? void 0 : api.jsonStorage) != null ? _a : getStorage();
   await loadConfig();
+  if (typeof (jsonStorageApi == null ? void 0 : jsonStorageApi.subscribe) === "function") {
+    try {
+      const off = jsonStorageApi.subscribe(() => {
+        refreshConfigFromStorage();
+        settingsChangedCb == null ? void 0 : settingsChangedCb();
+      });
+      if (typeof off === "function") {
+        if (typeof (api == null ? void 0 : api.cleanup) === "function") api.cleanup(off);
+        else cleanupFns.push(off);
+      }
+    } catch (e) {
+      hostError("could not subscribe to settings changes", e);
+    }
+  }
   if (cfg.enabled) {
     const ok = installPatch();
     if (!ok) hostError("no gateway identify surface found; spoofer inactive");
@@ -326,6 +352,7 @@ async function startNext(api) {
 }
 async function stopNext() {
   uninstallPatch();
+  settingsChangedCb = null;
   cleanupFns.forEach((f) => {
     try {
       f();
@@ -334,96 +361,176 @@ async function stopNext() {
   });
   cleanupFns = [];
 }
-function buildSettingsComponent() {
-  const React = getReact();
-  const RN = getRN();
-  if (!React || !RN) return null;
-  const el = React.createElement;
-  const { View = "view", Text = "text", Pressable = View, ScrollView = View, Switch = null } = RN;
-  const isDark = (() => {
-    var _a, _b, _c, _d, _e;
+function isDarkTheme() {
+  var _a, _b, _c, _d;
+  try {
+    const tm = (_b = (_a = getMetro()) == null ? void 0 : _a.findByProps) == null ? void 0 : _b.call(_a, "theme", "setTheme");
+    const t = (_d = (_c = tm == null ? void 0 : tm.theme) != null ? _c : tm == null ? void 0 : tm.resolvedTheme) != null ? _d : tm == null ? void 0 : tm.currentTheme;
+    if (t) return String(t).toLowerCase().includes("dark");
+  } catch {
+  }
+  return true;
+}
+function resolveDesign(api) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const candidates = [api == null ? void 0 : api.design, (_a = api == null ? void 0 : api.discord) == null ? void 0 : _a.design, (_c = (_b = api == null ? void 0 : api.unscoped) == null ? void 0 : _b.discord) == null ? void 0 : _c.design, (_d = api == null ? void 0 : api.unscoped) == null ? void 0 : _d.design];
+  for (const candidate of candidates) {
     try {
-      const m = getMetro();
-      const tm = (_c = (_a = m == null ? void 0 : m.findByStoreName) == null ? void 0 : _a.call(m, "ThemeManager")) != null ? _c : (_b = m == null ? void 0 : m.findByProps) == null ? void 0 : _b.call(m, "theme", "setTheme");
-      const t = (_e = (_d = tm == null ? void 0 : tm.theme) != null ? _d : tm == null ? void 0 : tm.resolvedTheme) != null ? _e : tm == null ? void 0 : tm.currentTheme;
-      if (t) return String(t).toLowerCase().includes("dark");
+      const d = (_e = candidate == null ? void 0 : candidate.Design) != null ? _e : candidate;
+      if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
     } catch {
     }
-    return true;
-  })();
-  const C = isDark ? { bg: "#111214", card: "#1a1b1e", text: "#ffffff", sub: "#9ba0a8", input: "#232428", chip: "#2b2d31", blurple: "#5865F2", danger: "#f04747", warn: "#faa61a", ok: "#23a55a" } : { bg: "#f2f3f5", card: "#ffffff", text: "#060607", sub: "#5c5e66", input: "#ebedef", chip: "#e3e5e8", blurple: "#5865F2", danger: "#d83c3e", warn: "#c28516", ok: "#248046" };
-  function Card(props) {
-    const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
-    return el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 6, marginTop: 8 } }, ...kids);
   }
-  function Label(props) {
-    return el(Text, { style: { color: C.sub, fontSize: 12, fontWeight: "700", marginBottom: 6 } }, props.children);
+  try {
+    const g = (_g = (_f = globalThis.revenge) == null ? void 0 : _f.discord) == null ? void 0 : _g.design;
+    const d = (_h = g == null ? void 0 : g.Design) != null ? _h : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
   }
-  return function PlatformSpooferSettings(props) {
-    var _a;
-    if (jsonStorageApi == null && ((_a = props == null ? void 0 : props.api) == null ? void 0 : _a.jsonStorage)) {
-      jsonStorageApi = props.api.jsonStorage;
+  try {
+    const b = (_i = globalThis.bunny) == null ? void 0 : _i.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
+  }
+  return null;
+}
+function buildSettingsComponent(api) {
+  var _a, _b, _c, _d, _e, _f;
+  const React = getReact(api);
+  if (!(React == null ? void 0 : React.createElement) || typeof React.useState !== "function") return null;
+  const el = React.createElement;
+  const RN = (_a = getRN(api)) != null ? _a : {};
+  const View = (_b = RN.View) != null ? _b : "view";
+  const Text = (_c = RN.Text) != null ? _c : "text";
+  const Pressable = (_d = RN.Pressable) != null ? _d : View;
+  const ScrollView = (_e = RN.ScrollView) != null ? _e : View;
+  const Switch = (_f = RN.Switch) != null ? _f : null;
+  const C = isDarkTheme() ? { text: "#ffffff", sub: "#9ba0a8", card: "#1a1b1e", accent: "#5865F2" } : { text: "#060607", sub: "#5c5e66", card: "#ffffff", accent: "#5865F2" };
+  const kids = (c) => Array.isArray(c) ? c : c == null ? [] : [c];
+  const D = resolveDesign(api);
+  function Group(props) {
+    if (D == null ? void 0 : D.TableRowGroup) {
+      return el(D.TableRowGroup, { title: props.title, description: props.description }, ...kids(props.children));
     }
-    refreshConfigFromStorage();
-    const [tick, setTick] = React.useState(0);
-    const kids = [];
-    kids.push(el(
+    return el(
       View,
-      { key: "head", style: { paddingHorizontal: 14, paddingTop: 8 } },
-      el(Text, { style: { color: C.text, fontSize: 16, fontWeight: "800" } }, "PlatformSpoofer"),
-      el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, "Spoof what device you're on \u2014 Discord draws the platform icon next to your name.")
-    ));
-    kids.push(el(
+      { style: { marginTop: 16 } },
+      el(Text, { style: { color: C.text, fontSize: 15, fontWeight: "600", paddingHorizontal: 16, marginBottom: 4 } }, props.title),
+      props.description ? el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 6 } }, props.description) : null,
+      el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } }, ...kids(props.children))
+    );
+  }
+  function ToggleRow(props) {
+    if (D == null ? void 0 : D.TableSwitchRow) {
+      return el(D.TableSwitchRow, {
+        label: props.label,
+        subLabel: props.subLabel,
+        value: !!props.value,
+        onValueChange: props.onValueChange
+      });
+    }
+    const control = Switch ? el(Switch, {
+      value: !!props.value,
+      onValueChange: props.onValueChange,
+      accessibilityLabel: props.label,
+      trackColor: { false: "rgba(128,128,128,0.35)", true: C.accent },
+      thumbColor: "#ffffff"
+    }) : el(Text, {
+      accessibilityLabel: props.label,
+      style: { color: C.accent, fontWeight: "700" },
+      onPress: () => props.onValueChange(!props.value)
+    }, props.value ? "On" : "Off");
+    return el(
       View,
-      { key: "warn", style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, padding: 12, marginTop: 8, borderWidth: 1, borderColor: C.warn } },
-      el(Text, { style: { color: C.warn, fontSize: 12, fontWeight: "700" } }, "\u26A0 No ban-safety guarantee"),
-      el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 4 } }, "Spoofing your platform may violate Discord's Terms of Service. Use at your own risk.")
-    ));
-    kids.push(el(
-      View,
-      { key: "toggle", style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, marginTop: 8, paddingHorizontal: 14, paddingVertical: 8 } },
+      { style: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16 } },
       el(
         View,
-        { style: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" } },
-        el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, "Enable spoofing"),
-        Switch ? el(Switch, { value: cfg.enabled, onValueChange: (v) => {
-          void updateConfig({ enabled: v });
-          setTick((n) => n + 1);
-          toast(v ? "Spoofer enabled" : "Spoofer disabled");
-        } }) : el(Text, { style: { color: C.sub }, onPress: () => {
-          void updateConfig({ enabled: !cfg.enabled });
-          setTick((n) => n + 1);
-        } }, cfg.enabled ? "On" : "Off")
+        { style: { flex: 1, paddingRight: 12 } },
+        el(Text, { style: { color: C.text, fontSize: 16 } }, props.label),
+        props.subLabel ? el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null
       ),
-      el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, cfg.enabled ? "Active" : "Disabled \u2014 nothing is patched while off")
-    ));
-    kids.push(el(
-      View,
-      { key: "chips", style: { marginTop: 10 } },
-      el(Label, null, "Platform"),
-      (() => {
-        const rows = PLATFORMS.map((p) => el(Pressable, {
-          key: p.key,
+      control
+    );
+  }
+  function ChoiceRow(props) {
+    if (D == null ? void 0 : D.TableRow) {
+      return el(D.TableRow, { label: props.label, subLabel: props.selected ? "Selected" : void 0, onPress: props.onPress });
+    }
+    return el(
+      Pressable,
+      {
+        onPress: props.onPress,
+        accessibilityLabel: props.label,
+        style: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16 }
+      },
+      el(Text, { style: { color: C.text, fontSize: 16, flex: 1 } }, props.label),
+      el(Text, { style: { color: C.accent, fontSize: 16, fontWeight: "700" } }, props.selected ? "\u2713" : "")
+    );
+  }
+  return function PlatformSpooferSettings(props) {
+    var _a2, _b2, _c2, _d2, _e2, _f2;
+    const settingsApi = (_a2 = props == null ? void 0 : props.api) != null ? _a2 : api;
+    const storage = (_b2 = settingsApi == null ? void 0 : settingsApi.jsonStorage) != null ? _b2 : jsonStorageApi;
+    jsonStorageApi = storage;
+    const [, force] = React.useState(0);
+    React.useEffect(() => {
+      settingsChangedCb = () => force((n) => n + 1);
+      return () => {
+        settingsChangedCb = null;
+      };
+    }, []);
+    let stored = null;
+    try {
+      stored = (_e2 = (_d2 = (_c2 = storage == null ? void 0 : storage.use) == null ? void 0 : _c2.call(storage)) != null ? _d2 : storage == null ? void 0 : storage.cache) != null ? _e2 : null;
+    } catch {
+      stored = (_f2 = storage == null ? void 0 : storage.cache) != null ? _f2 : null;
+    }
+    const enabled = typeof (stored == null ? void 0 : stored.enabled) === "boolean" ? stored.enabled : cfg.enabled;
+    const platform = platformProps(stored == null ? void 0 : stored.platform) ? stored.platform : cfg.platform;
+    return el(
+      ScrollView,
+      { contentContainerStyle: { paddingBottom: 24 } },
+      el(
+        Group,
+        { title: "PlatformSpoofer", description: "Spoofing may violate Discord\u2019s Terms of Service; use at your own risk." },
+        el(ToggleRow, {
+          label: "Enable platform spoofing",
+          subLabel: enabled ? "Applied on the next gateway connection." : "Platform identification is unchanged while off.",
+          value: enabled,
+          onValueChange: (value) => {
+            void updateConfig({ enabled: value });
+          }
+        })
+      ),
+      (D == null ? void 0 : D.TableRadioGroup) && (D == null ? void 0 : D.TableRadioRow) ? el(D.TableRadioGroup, {
+        title: "Platform",
+        description: "Choose the platform Discord reports for your account.",
+        value: platform,
+        onChange: (value) => {
+          void updateConfig({ platform: value });
+        }
+      }, ...PLATFORMS.map((item) => el(D.TableRadioRow, { key: item.key, label: item.label, value: item.key }))) : el(
+        Group,
+        { title: "Platform", description: "Choose the platform Discord reports for your account." },
+        ...PLATFORMS.map((item) => el(ChoiceRow, {
+          key: item.key,
+          label: item.label,
+          selected: item.key === platform,
           onPress: () => {
-            void updateConfig({ platform: p.key });
-            setTick((n) => n + 1);
-          },
-          style: { backgroundColor: cfg.platform === p.key ? C.blurple : C.chip, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 }
-        }, el(Text, { style: { color: cfg.platform === p.key ? "#ffffff" : C.text, fontSize: 13, fontWeight: "700" } }, p.label)));
-        return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { paddingHorizontal: 12 } }, ...rows);
-      })()
-    ));
-    kids.push(el(
-      View,
-      { key: "apply", style: { paddingHorizontal: 14, marginTop: 10 } },
-      el(Text, { style: { color: C.sub, fontSize: 12 } }, "Takes effect on the next gateway connect: force-close Discord and reopen after changing."),
-      (() => {
-        const p = platformProps(cfg.platform);
-        return el(Text, { style: { color: C.ok, fontSize: 12, marginTop: 4 } }, 'Sends browser: "' + (p ? p.browser : "\u2014") + '"');
-      })()
-    ));
-    void tick;
-    return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg }, contentContainerStyle: { paddingBottom: 30 } }, ...kids);
+            void updateConfig({ platform: item.key });
+          }
+        }))
+      ),
+      el(
+        Group,
+        { title: "Apply changes" },
+        el(
+          Text,
+          { style: { color: C.sub, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 } },
+          "Force-close and reopen Discord after changing the platform."
+        )
+      )
+    );
   };
 }
 var __builtSettings = null;
@@ -432,18 +539,19 @@ var __instance = {
   start: startNext,
   stop: stopNext,
   SettingsComponent: function(props) {
-    var _a, _b;
+    var _a, _b, _c;
+    const settingsApi = (_a = props == null ? void 0 : props.api) != null ? _a : props;
+    const React = getReact(settingsApi);
+    if (!(React == null ? void 0 : React.createElement)) return null;
     try {
-      if (!__builtSettings) __builtSettings = buildSettingsComponent();
-      if (__builtSettings) return __builtSettings(props);
+      if (settingsApi == null ? void 0 : settingsApi.jsonStorage) jsonStorageApi = settingsApi.jsonStorage;
+      if (!__builtSettings) __builtSettings = buildSettingsComponent(settingsApi);
+      if (__builtSettings) return React.createElement(__builtSettings, { api: settingsApi });
     } catch (e) {
       hostError("settings build failed", e);
     }
-    const React = getReact();
-    const RN = getRN();
-    const el = React == null ? void 0 : React.createElement;
-    if (el && RN) return el((_a = RN.View) != null ? _a : "view", null, el((_b = RN.Text) != null ? _b : "text", null, "PlatformSpoofer: UI unavailable on this host"));
-    return null;
+    const RN = (_b = getRN(settingsApi)) != null ? _b : {};
+    return React.createElement((_c = RN.Text) != null ? _c : "text", null, "PlatformSpoofer settings could not load on this build.");
   }
 };
 __instance.__engine = {

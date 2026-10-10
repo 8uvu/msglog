@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.6.7";
+var PLUGIN_VERSION = "1.6.8";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -1249,8 +1249,12 @@ function paintRow(row, processColor) {
       gutterColor: red
     };
   } else {
-    msg.textColor = processColor("#afb2b4");
     delete row.backgroundHighlight;
+    delete row.highlight;
+    delete row.highlightColor;
+    delete row.highlightBackgroundColor;
+    delete msg.textColor;
+    delete msg.backgroundColor;
   }
   if (cfg.inlineEdits && typeof msg.content === "string") {
     const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
@@ -1413,7 +1417,7 @@ function viewerColors() {
       deleted: "#d83c3e",
       deletedBg: "rgba(216,60,62,0.10)",
       edited: "#4e5058",
-      editedBg: "rgba(0,0,0,0.05)"
+      editedBg: "transparent"
     };
   }
   return {
@@ -1424,16 +1428,42 @@ function viewerColors() {
     deleted: "#f23f43",
     deletedBg: "rgba(242,63,67,0.14)",
     edited: "#949ba4",
-    editedBg: "rgba(255,255,255,0.06)"
+    editedBg: "transparent"
   };
 }
+function resolveDesign() {
+  var _a, _b, _c, _d;
+  try {
+    const g = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.discord) == null ? void 0 : _b.design;
+    const d = (_c = g == null ? void 0 : g.Design) != null ? _c : g;
+    if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+  } catch {
+  }
+  try {
+    const b = (_d = globalThis.bunny) == null ? void 0 : _d.ui;
+    if (b == null ? void 0 : b.FormTableRowGroup) return b;
+  } catch {
+  }
+  return null;
+}
 function makeSettingsComponent() {
+  var _a, _b;
   const React = getReact();
   if (!React) return () => null;
   const el = React.createElement.bind(React);
   const RN = getRN() || {};
   const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null, Image = null } = RN;
+  const D = resolveDesign();
+  const DInput = (_b = (_a = D == null ? void 0 : D.TextInput) != null ? _a : D == null ? void 0 : D.TextField) != null ? _b : TextInput;
   function SwitchRow(props) {
+    if (D == null ? void 0 : D.TableSwitchRow) {
+      return el(D.TableSwitchRow, {
+        label: props.label,
+        subLabel: props.subLabel,
+        value: !!props.value,
+        onValueChange: props.onValueChange
+      });
+    }
     const c = viewerColors();
     const toggle = Switch ? el(Switch, {
       value: !!props.value,
@@ -1460,6 +1490,7 @@ function makeSettingsComponent() {
   function RowGroup(props) {
     const c = viewerColors();
     const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
+    if (D == null ? void 0 : D.TableRowGroup) return el(D.TableRowGroup, { title: props.title }, ...kids);
     return el(
       View,
       { style: { marginTop: 16 } },
@@ -1472,16 +1503,16 @@ function makeSettingsComponent() {
     );
   }
   const DText = (props) => {
-    var _a;
+    var _a2;
     const design = getDesign();
     const T = design == null ? void 0 : design.Text;
-    const style = { color: viewerColors().text, ...(_a = props == null ? void 0 : props.style) != null ? _a : {} };
+    const style = { color: viewerColors().text, ...(_a2 = props == null ? void 0 : props.style) != null ? _a2 : {} };
     return el(T || Text, { ...props, style }, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
   };
   return function SettingsComponent2(props) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
-    const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
-    const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
+    var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
+    const api = (_a2 = props == null ? void 0 : props.api) != null ? _a2 : classicSettingsApi();
+    const settings = (_d = (_c = (_b2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b2.use) == null ? void 0 : _c.call(_b2)) != null ? _d : cfg;
     const C = viewerColors();
     const [entries, setEntries] = React.useState([]);
     const [filter, setFilter] = React.useState("all");
@@ -1495,10 +1526,10 @@ function makeSettingsComponent() {
       };
     }, []);
     const reload = async () => {
-      var _a2;
+      var _a3;
       const merged = {};
       try {
-        const raw = await ((_a2 = getFileModule()) == null ? void 0 : _a2.readFile(logPath(), "utf8"));
+        const raw = await ((_a3 = getFileModule()) == null ? void 0 : _a3.readFile(logPath(), "utf8"));
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") Object.assign(merged, parsed);
       } catch {
@@ -1538,21 +1569,21 @@ function makeSettingsComponent() {
       }
     };
     const clearLog = async () => {
-      var _a2;
+      var _a3;
       log = {};
       try {
-        await ((_a2 = getFileModule()) == null ? void 0 : _a2.writeFile("documents", LOG_FILE, "{}", "utf8"));
+        await ((_a3 = getFileModule()) == null ? void 0 : _a3.writeFile("documents", LOG_FILE, "{}", "utf8"));
       } catch {
       }
       void reload();
     };
     const clearImageCache = async () => {
-      var _a2, _b2;
+      var _a3, _b3;
       try {
         const fs = getNormalizedFs();
-        const base = (_a2 = fs == null ? void 0 : fs.dirPath) != null ? _a2 : "";
+        const base = (_a3 = fs == null ? void 0 : fs.dirPath) != null ? _a3 : "";
         for (const id of Object.keys(imageIndex)) {
-          for (const img of (_b2 = imageIndex[id]) != null ? _b2 : []) {
+          for (const img of (_b3 = imageIndex[id]) != null ? _b3 : []) {
             try {
               await (fs == null ? void 0 : fs.remove(base + "/" + img.file));
             } catch {
@@ -1598,8 +1629,8 @@ function makeSettingsComponent() {
       subLabel,
       value: (settings == null ? void 0 : settings[key]) !== false,
       onValueChange: (v) => {
-        var _a2, _b2;
-        return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { [key]: v });
+        var _a3, _b3;
+        return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { [key]: v });
       }
     });
     const deletedCount = entries.filter((m) => m.status === "deleted").length;
@@ -1650,37 +1681,37 @@ function makeSettingsComponent() {
         sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
         sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
         el(DText, null, "Attachment size limit (MB) \u2014 larger files are not saved."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "100",
           placeholderTextColor: C.sub,
           defaultValue: String((_h = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _h : 100),
           onChangeText: (t) => {
-            var _a2, _b2;
+            var _a3, _b3;
             const n = parseFloat(t);
-            if (!isNaN(n) && n >= 1 && n <= 1024) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentSizeLimitMB: n });
+            if (!isNaN(n) && n >= 1 && n <= 1024) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { attachmentSizeLimitMB: n });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         el(DText, null, "Attachment file extensions \u2014 comma-separated allowlist."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "png,jpg,jpeg,gif,webp",
           placeholderTextColor: C.sub,
           defaultValue: (_i = settings == null ? void 0 : settings.attachmentExtensions) != null ? _i : "png,jpg,jpeg,gif,webp",
           onChangeText: (t) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { attachmentExtensions: t });
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { attachmentExtensions: t });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         el(DText, null, "Image storage quota (GB)"),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "2",
           placeholderTextColor: C.sub,
           defaultValue: String((_j = settings == null ? void 0 : settings.imageQuotaGB) != null ? _j : 2),
           onChangeText: (t) => {
-            var _a2, _b2;
+            var _a3, _b3;
             const n = parseFloat(t);
-            if (!isNaN(n) && n >= 0.1 && n <= 100) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { imageQuotaGB: n });
+            if (!isNaN(n) && n >= 0.1 && n <= 100) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { imageQuotaGB: n });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
@@ -1695,36 +1726,36 @@ function makeSettingsComponent() {
         RowGroup,
         { title: "Filters" },
         el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel IDs always logged, overriding ignores."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "e.g. 123456789012345678",
           placeholderTextColor: C.sub,
           defaultValue: (_k = settings == null ? void 0 : settings.whitelistedIds) != null ? _k : "",
           onChangeText: (t) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { whitelistedIds: t });
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { whitelistedIds: t });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         el(DText, null, "Ignored guilds \u2014 comma-separated server IDs never logged."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "Server IDs",
           placeholderTextColor: C.sub,
           defaultValue: (_l = settings == null ? void 0 : settings.ignoredGuilds) != null ? _l : "",
           onChangeText: (t) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredGuilds: t });
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { ignoredGuilds: t });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         el(DText, null, "Time-based cleanup \u2014 remove entries older than this many minutes (0 = off)."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "0",
           placeholderTextColor: C.sub,
           defaultValue: String((_m = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _m : 0),
           onChangeText: (t) => {
-            var _a2, _b2;
+            var _a3, _b3;
             const n = parseInt(t, 10);
-            if (!isNaN(n) && n >= 0) (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { timeBasedCleanupMinutes: n });
+            if (!isNaN(n) && n >= 0) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { timeBasedCleanupMinutes: n });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         })
@@ -1733,24 +1764,24 @@ function makeSettingsComponent() {
         RowGroup,
         { title: "Ignored IDs" },
         el(DText, null, "Comma-separated channel IDs never get logged."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "Channel IDs",
           placeholderTextColor: C.sub,
           defaultValue: (_n = settings == null ? void 0 : settings.ignoredChannels) != null ? _n : "",
           onChangeText: (t) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredChannels: t });
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { ignoredChannels: t });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         el(DText, null, "Comma-separated user IDs never get logged."),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "User IDs",
           placeholderTextColor: C.sub,
           defaultValue: (_o = settings == null ? void 0 : settings.ignoredUsers) != null ? _o : "",
           onChangeText: (t) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { ignoredUsers: t });
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { ignoredUsers: t });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         })
@@ -1797,7 +1828,7 @@ function makeSettingsComponent() {
         RowGroup,
         { title: "Saved log (" + visible.length + " shown)" },
         el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4 } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
-        el(TextInput, {
+        el(DInput, {
           placeholder: "Search author or text\u2026",
           placeholderTextColor: C.sub,
           value: query,
@@ -1805,7 +1836,7 @@ function makeSettingsComponent() {
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
         visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 200).map((m) => {
-          var _a2;
+          var _a3;
           const isDel = m.ghostPing || m.status === "deleted";
           const statusColor = isDel ? C.deleted : C.edited;
           return el(
@@ -1833,12 +1864,12 @@ function makeSettingsComponent() {
               el(
                 View,
                 { key: m.id + ":imgs", style: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 } },
-                ((_a2 = imageIndex[m.id]) != null ? _a2 : []).slice(0, 4).map(
+                ((_a3 = imageIndex[m.id]) != null ? _a3 : []).slice(0, 4).map(
                   (img, i) => {
-                    var _a3;
+                    var _a4;
                     return el(Image, {
                       key: i,
-                      source: { uri: "data:" + ((_a3 = img.mime) != null ? _a3 : "image/png") + ";base64," + readSavedImageB64(img.file) },
+                      source: { uri: "data:" + ((_a4 = img.mime) != null ? _a4 : "image/png") + ";base64," + readSavedImageB64(img.file) },
                       style: { width: 72, height: 72, borderRadius: 6, marginRight: 6, marginBottom: 6, backgroundColor: C.bg },
                       resizeMode: "cover"
                     });
