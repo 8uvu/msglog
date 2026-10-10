@@ -113,17 +113,57 @@ function popIt(): void {
     try { console.log('[QuickCheck]\n' + text); } catch {}
 }
 
+// Discord's theme store decides light vs dark; default dark. Plain Text without
+// an explicit color renders black on the dark theme, so every label sets one.
+function settingsInk(): { text: string; sub: string } {
+    let dark = true;
+    try {
+        const tm: any = (globalThis as any).revenge?.metro?.findByProps?.('theme', 'setTheme');
+        const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
+        if (t) dark = String(t).toLowerCase().includes('dark');
+    } catch {}
+    return dark ? { text: '#ffffff', sub: '#9ba0a8' } : { text: '#060607', sub: '#5c5e66' };
+}
+
+// Discord's own design components give the settings page Discord's native look.
+// Resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(): any {
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
+
 function makeSettings(): any {
+    const ink = settingsInk();
     const React = react();
     const RN = rn();
     if (!React || !RN) return null;
     const { View, Text, ScrollView } = RN;
     const el = React.createElement;
+    const D = resolveDesign();
     return function Settings() {
+        // Native Discord rows when the host exposes its design system.
+        if (D?.TableRowGroup && D?.TableRow) {
+            const rows = diagnosis().split('\n').map((text, i) => text.trim()
+                ? el(D.TableRow, { key: 'r' + i, label: text })
+                : el(View, { key: 'g' + i, style: { height: 6 } }));
+            return el(
+                ScrollView,
+                { style: { flex: 1 } },
+                el(D.TableRowGroup, { title: 'Quick Check' }, ...rows),
+            );
+        }
         return el(
             ScrollView,
             { style: { flex: 1 } },
-            el(View, { style: { padding: 12 } }, el(Text, null, diagnosis())),
+            el(View, { style: { padding: 12 } }, el(Text, { style: { color: ink.text, fontSize: 13 } }, diagnosis())),
         );
     };
 }
@@ -135,14 +175,14 @@ function SettingsComponent(props: any) {
         if (!_settings) {
             const React = react();
             const RN = rn();
-            if (React && RN?.Text) return React.createElement(RN.Text, null, 'React resolved late — toggle the plugin off and on.');
+            if (React && RN?.Text) return React.createElement(RN.Text, { style: { color: settingsInk().text } }, 'React resolved late — toggle the plugin off and on.');
             return null;
         }
         return _settings(props);
     } catch (e) {
         const React = react();
         const RN = rn();
-        if (React && RN?.Text) return React.createElement(RN.Text, null, 'QuickCheck settings crashed: ' + (e instanceof Error ? e.message : String(e)));
+        if (React && RN?.Text) return React.createElement(RN.Text, { style: { color: settingsInk().text } }, 'QuickCheck settings crashed: ' + (e instanceof Error ? e.message : String(e)));
         return null;
     }
 }

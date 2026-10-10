@@ -9,11 +9,12 @@
 //
 // Hard rules honored here (learned from MessageLogger/FakeDM):
 //   - ZERO `revenge.*` access at eval time (the client kills the toggle).
-//   - No CSS injection — settings UI is plain React Native components.
+//   - Settings UI is plain React Native components that always render; we
+//     never return null for the page just because a Design row is missing.
 //   - Toasts go through ToastActionCreators.open, never revenge.ui.showToast.
 //   - Hermes: children passed to createElement are always arrays/normalized.
 
-let PLUGIN_VERSION = '1.1.0';
+const PLUGIN_VERSION = '1.4.0';
 
 // ---- Host lookups (lazy, call inside start/UI render only) --------------------
 
@@ -30,41 +31,64 @@ function getMetro(): any {
     return null;
 }
 
-function getReact(): any {
+function getReact(api?: any): any {
     try {
-        const m = getMetro();
-        const r = m?.findByDisplayName?.('React') ?? m?.findByProps?.('createElement', 'cloneElement') ?? null;
-        if (r) return r;
-    } catch {}
-    try {
-        if (typeof revenge !== 'undefined') return revenge?.react?.React ?? null;
-    } catch {}
-    return null;
-}
-
-function getRN(): any {
-    try {
-        const m = getMetro();
-        const rn = m?.findByDisplayName?.('ReactNative') ?? m?.findByProps?.('View', 'Text', 'TextInput') ?? null;
-        if (rn) return rn;
-    } catch {}
-    try {
-        if (typeof revenge !== 'undefined') return revenge?.react?.ReactNative ?? null;
-    } catch {}
-    return null;
-}
-
-function getDispatcher(): any | null {
-    try {
-        const metro = getMetro();
-        const fd = metro?.findByProps?.('subscribe', 'dispatch') ?? metro?.common?.FluxDispatcher ?? null;
-        if (fd?.dispatch) return fd;
+        const react = api?.unscoped?.react?.React ?? api?.react?.React ?? null;
+        if (react?.createElement && react?.useState) return react;
     } catch {}
     try {
         if (typeof revenge !== 'undefined') {
-            const fd = revenge?.discord?.flux?.dispatcher;
-            if (fd?.dispatch) return fd;
+            const react = revenge?.react?.React ?? revenge?.react?.ReactModule ?? null;
+            if (react?.createElement && react?.useState) return react;
         }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const react = bunny?.React ?? bunny?.metro?.common?.React ?? bunny?.common?.React ?? null;
+            if (react?.createElement && react?.useState) return react;
+        }
+    } catch {}
+    try {
+        if (typeof vendetta !== 'undefined') {
+            const react = vendetta?.metro?.common?.React ?? vendetta?.common?.React ?? null;
+            if (react?.createElement && react?.useState) return react;
+        }
+    } catch {}
+    try {
+        const metro = getMetro();
+        const react = metro?.findByProps?.('createElement', 'useState') ?? null;
+        if (react) return react;
+    } catch {}
+    return null;
+}
+
+function getRN(api?: any): any {
+    try {
+        const rn = api?.unscoped?.react?.ReactNative ?? api?.react?.ReactNative ?? null;
+        if (rn?.View && rn?.Text) return rn;
+    } catch {}
+    try {
+        if (typeof revenge !== 'undefined') {
+            const rn = revenge?.react?.ReactNative ?? revenge?.react?.native ?? null;
+            if (rn?.View && rn?.Text) return rn;
+        }
+    } catch {}
+    try {
+        if (typeof bunny !== 'undefined') {
+            const rn = bunny?.ReactNative ?? bunny?.metro?.common?.ReactNative ?? bunny?.common?.ReactNative ?? null;
+            if (rn?.View && rn?.Text) return rn;
+        }
+    } catch {}
+    try {
+        if (typeof vendetta !== 'undefined') {
+            const rn = vendetta?.metro?.common?.ReactNative ?? vendetta?.common?.ReactNative ?? null;
+            if (rn?.View && rn?.Text) return rn;
+        }
+    } catch {}
+    try {
+        const metro = getMetro();
+        const rn = metro?.findByProps?.('View', 'Text', 'TextInput') ?? null;
+        if (rn) return rn;
     } catch {}
     return null;
 }
@@ -152,14 +176,18 @@ let cfg = {
 };
 
 let jsonStorageApi: any = null;
+let settingsChangedCb: (() => void) | null = null;
+
+function refreshConfig(data: any) {
+    if (!data || typeof data !== 'object') return;
+    if (typeof data.enabled === 'boolean') cfg.enabled = data.enabled;
+    if (typeof data.platform === 'string' && platformProps(data.platform)) cfg.platform = data.platform;
+}
 
 async function loadConfig() {
     try {
         const data = (await jsonStorageApi?.get?.()) ?? {};
-        if (data && typeof data === 'object') {
-            if (typeof data.enabled === 'boolean') cfg.enabled = data.enabled;
-            if (typeof data.platform === 'string' && platformProps(data.platform)) cfg.platform = data.platform;
-        }
+        refreshConfig(data);
     } catch (e) {
         hostError('loadConfig failed', e);
     }
@@ -175,24 +203,23 @@ async function persistConfig() {
 
 function refreshConfigFromStorage() {
     try {
-        const data = jsonStorageApi?.use?.() ?? null;
-        if (data && typeof data === 'object') {
-            if (typeof data.enabled === 'boolean') cfg.enabled = data.enabled;
-            if (typeof data.platform === 'string' && platformProps(data.platform)) cfg.platform = data.platform;
-        }
+        refreshConfig(jsonStorageApi?.cache ?? null);
     } catch {}
 }
 
 async function updateConfig(patch: any) {
     if (!patch || typeof patch !== 'object') return;
-    if (typeof patch.enabled === 'boolean') cfg.enabled = patch.enabled;
-    if (typeof patch.platform === 'string' && platformProps(patch.platform)) cfg.platform = patch.platform;
+    const next = { ...cfg };
+    if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled;
+    if (typeof patch.platform === 'string' && platformProps(patch.platform)) next.platform = patch.platform;
+    cfg = next;
     await persistConfig();
     if (cfg.enabled) {
         if (!installPatch()) hostError('no gateway identify surface found; spoofer inactive');
     } else {
         uninstallPatch();
     }
+    settingsChangedCb?.();
 }
 
 // ---- Spoof engine ----------------------------------------------------------------
@@ -228,7 +255,6 @@ function patchTarget(target: any, method: string, describe: string): Patch | nul
         const original = target?.[method];
         if (typeof original !== 'function') return null;
         const owner = target;
-        let patched = original;
         // Spread so chained wrappers stay consistent.
         const wrapped = function (this: any, ...args: any[]) {
             try {
@@ -245,8 +271,6 @@ function patchTarget(target: any, method: string, describe: string): Patch | nul
             }
         } catch {}
         owner[method] = wrapped;
-        patched = wrapped;
-        void patched;
         return {
             describe,
             restore: () => {
@@ -359,8 +383,32 @@ function patchResultTarget(target: any, method: string): Patch | null {
 let cleanupFns: (() => void)[] = [];
 
 async function startNext(api: any) {
+    // Revenge stops AND DISABLES a plugin whose lifecycle throws, which would
+    // hide its settings page entirely. Every startup failure stays contained.
+    try {
+        await startPlugin(api);
+    } catch (e) {
+        hostError('start failed', e);
+    }
+}
+
+async function startPlugin(api: any) {
     jsonStorageApi = api?.jsonStorage ?? getStorage();
     await loadConfig();
+    if (typeof jsonStorageApi?.subscribe === 'function') {
+        try {
+            const off = jsonStorageApi.subscribe(() => {
+                refreshConfigFromStorage();
+                settingsChangedCb?.();
+            });
+            if (typeof off === 'function') {
+                if (typeof api?.cleanup === 'function') api.cleanup(off);
+                else cleanupFns.push(off);
+            }
+        } catch (e) {
+            hostError('could not subscribe to settings changes', e);
+        }
+    }
     if (cfg.enabled) {
         const ok = installPatch();
         if (!ok) hostError('no gateway identify surface found; spoofer inactive');
@@ -369,6 +417,7 @@ async function startNext(api: any) {
 
 async function stopNext() {
     uninstallPatch();
+    settingsChangedCb = null;
     cleanupFns.forEach((f) => {
         try { f(); } catch {}
     });
@@ -377,80 +426,151 @@ async function stopNext() {
 
 // ---- Settings UI ---------------------------------------------------------------------
 
-function buildSettingsComponent() {
-    const React = getReact();
-    const RN = getRN();
-    if (!React || !RN) return null;
-    const el = React.createElement;
-    const { View = 'view', Text = 'text', Pressable = View, ScrollView = View, Switch = null } = RN;
+// Discord's theme store decides light vs dark colors; default dark.
+function isDarkTheme(): boolean {
+    try {
+        const tm = getMetro()?.findByProps?.('theme', 'setTheme');
+        const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
+        if (t) return String(t).toLowerCase().includes('dark');
+    } catch {}
+    return true;
+}
 
-    const isDark = (() => {
+// Discord's own design components give the settings page Discord's native look.
+// They are resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(api?: any): any {
+    const candidates: any[] = [api?.design, api?.discord?.design, api?.unscoped?.discord?.design, api?.unscoped?.design];
+    for (const candidate of candidates) {
         try {
-            const m = getMetro();
-            const tm = m?.findByStoreName?.('ThemeManager') ?? m?.findByProps?.('theme', 'setTheme');
-            const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
-            if (t) return String(t).toLowerCase().includes('dark');
+            const d = candidate?.Design ?? candidate;
+            if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
         } catch {}
-        return true;
-    })();
-    const C = isDark
-        ? { bg: '#111214', card: '#1a1b1e', text: '#ffffff', sub: '#9ba0a8', input: '#232428', chip: '#2b2d31', blurple: '#5865F2', danger: '#f04747', warn: '#faa61a', ok: '#23a55a' }
-        : { bg: '#f2f3f5', card: '#ffffff', text: '#060607', sub: '#5c5e66', input: '#ebedef', chip: '#e3e5e8', blurple: '#5865F2', danger: '#d83c3e', warn: '#c28516', ok: '#248046' };
-
-    function Card(props: any) {
-        const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
-        return el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 6, marginTop: 8 } }, ...kids);
     }
-    function Label(props: any) {
-        return el(Text, { style: { color: C.sub, fontSize: 12, fontWeight: '700', marginBottom: 6 } }, props.children);
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
+
+function buildSettingsComponent(api?: any) {
+    const React = getReact(api);
+    if (!React?.createElement || typeof React.useState !== 'function') return null;
+    const el = React.createElement;
+    const RN: any = getRN(api) ?? {};
+    const View = RN.View ?? 'view';
+    const Text = RN.Text ?? 'text';
+    const Pressable = RN.Pressable ?? View;
+    const ScrollView = RN.ScrollView ?? View;
+    const Switch = RN.Switch ?? null;
+    const C = isDarkTheme()
+        ? { text: '#ffffff', sub: '#9ba0a8', card: '#1a1b1e', accent: '#5865F2' }
+        : { text: '#060607', sub: '#5c5e66', card: '#ffffff', accent: '#5865F2' };
+    const kids = (c: any) => (Array.isArray(c) ? c : c == null ? [] : [c]);
+    const D = resolveDesign(api);
+
+    function Group(props: any) {
+        if (D?.TableRowGroup) {
+            return el(D.TableRowGroup, { title: props.title, description: props.description }, ...kids(props.children));
+        }
+        return el(View, { style: { marginTop: 16 } },
+            el(Text, { style: { color: C.text, fontSize: 15, fontWeight: '600', paddingHorizontal: 16, marginBottom: 4 } }, props.title),
+            props.description ? el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 6 } }, props.description) : null,
+            el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } }, ...kids(props.children)));
+    }
+
+    function ToggleRow(props: any) {
+        if (D?.TableSwitchRow) {
+            return el(D.TableSwitchRow, {
+                label: props.label,
+                subLabel: props.subLabel,
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+            });
+        }
+        const control = Switch
+            ? el(Switch, {
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+                accessibilityLabel: props.label,
+                trackColor: { false: 'rgba(128,128,128,0.35)', true: C.accent },
+                thumbColor: '#ffffff',
+            })
+            : el(Text, {
+                accessibilityLabel: props.label,
+                style: { color: C.accent, fontWeight: '700' },
+                onPress: () => props.onValueChange(!props.value),
+            }, props.value ? 'On' : 'Off');
+        return el(View, { style: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16 } },
+            el(View, { style: { flex: 1, paddingRight: 12 } },
+                el(Text, { style: { color: C.text, fontSize: 16 } }, props.label),
+                props.subLabel ? el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null),
+            control);
+    }
+
+    function ChoiceRow(props: any) {
+        if (D?.TableRow) {
+            return el(D.TableRow, { label: props.label, subLabel: props.selected ? 'Selected' : undefined, onPress: props.onPress });
+        }
+        return el(Pressable, {
+            onPress: props.onPress,
+            accessibilityLabel: props.label,
+            style: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16 },
+        },
+            el(Text, { style: { color: C.text, fontSize: 16, flex: 1 } }, props.label),
+            el(Text, { style: { color: C.accent, fontSize: 16, fontWeight: '700' } }, props.selected ? '✓' : ''));
     }
 
     return function PlatformSpooferSettings(props: any) {
-        if (jsonStorageApi == null && props?.api?.jsonStorage) {
-            jsonStorageApi = props.api.jsonStorage;
+        const settingsApi = props?.api ?? api;
+        const storage = settingsApi?.jsonStorage ?? jsonStorageApi;
+        jsonStorageApi = storage;
+        const [, force] = React.useState(0);
+        React.useEffect(() => {
+            settingsChangedCb = () => force((n: number) => n + 1);
+            return () => {
+                settingsChangedCb = null;
+            };
+        }, []);
+        let stored: any = null;
+        try {
+            stored = storage?.use?.() ?? storage?.cache ?? null;
+        } catch {
+            stored = storage?.cache ?? null;
         }
-        refreshConfigFromStorage();
-        const [tick, setTick] = React.useState(0);
-        const kids: any[] = [];
+        const enabled = typeof stored?.enabled === 'boolean' ? stored.enabled : cfg.enabled;
+        const platform = platformProps(stored?.platform) ? stored.platform : cfg.platform;
 
-        kids.push(el(View, { key: 'head', style: { paddingHorizontal: 14, paddingTop: 8 } },
-            el(Text, { style: { color: C.text, fontSize: 16, fontWeight: '800' } }, 'PlatformSpoofer'),
-            el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, 'Spoof what device you\'re on — Discord draws the platform icon next to your name.')));
-
-        // Ban-risk warning (Equicord shows the same).
-        kids.push(el(View, { key: 'warn', style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, padding: 12, marginTop: 8, borderWidth: 1, borderColor: C.warn } },
-            el(Text, { style: { color: C.warn, fontSize: 12, fontWeight: '700' } }, '⚠ No ban-safety guarantee'),
-            el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 4 } }, 'Spoofing your platform may violate Discord\'s Terms of Service. Use at your own risk.')));
-
-        kids.push(el(View, { key: 'toggle', style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, marginTop: 8, paddingHorizontal: 14, paddingVertical: 8 } },
-            el(View, { style: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } },
-                el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, 'Enable spoofing'),
-                Switch
-                    ? el(Switch, { value: cfg.enabled, onValueChange: (v: boolean) => { void updateConfig({ enabled: v }); setTick((n: number) => n + 1); toast(v ? 'Spoofer enabled' : 'Spoofer disabled'); } })
-                    : el(Text, { style: { color: C.sub }, onPress: () => { void updateConfig({ enabled: !cfg.enabled }); setTick((n: number) => n + 1); } }, cfg.enabled ? 'On' : 'Off')),
-            el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, cfg.enabled ? 'Active' : 'Disabled — nothing is patched while off')));
-
-        kids.push(el(View, { key: 'chips', style: { marginTop: 10 } },
-            el(Label, null, 'Platform'),
-            (() => {
-                const rows: any[] = PLATFORMS.map((p) =>
-                    el(Pressable, {
-                        key: p.key,
-                        onPress: () => { void updateConfig({ platform: p.key }); setTick((n: number) => n + 1); },
-                        style: { backgroundColor: cfg.platform === p.key ? C.blurple : C.chip, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 },
-                    }, el(Text, { style: { color: cfg.platform === p.key ? '#ffffff' : C.text, fontSize: 13, fontWeight: '700' } }, p.label)));
-                return el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { paddingHorizontal: 12 } }, ...rows);
-            })()));
-
-        kids.push(el(View, { key: 'apply', style: { paddingHorizontal: 14, marginTop: 10 } },
-            el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Takes effect on the next gateway connect: force-close Discord and reopen after changing.'),
-            (() => {
-                const p = platformProps(cfg.platform);
-                return el(Text, { style: { color: C.ok, fontSize: 12, marginTop: 4 } }, 'Sends browser: "' + (p ? p.browser : '—') + '"');
-            })()));
-
-        void tick;
-        return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg }, contentContainerStyle: { paddingBottom: 30 } }, ...kids);
+        return el(ScrollView, { contentContainerStyle: { paddingBottom: 24 } },
+            el(Group, { title: 'PlatformSpoofer', description: 'Spoofing may violate Discord’s Terms of Service; use at your own risk.' },
+                el(ToggleRow, {
+                    label: 'Enable platform spoofing',
+                    subLabel: enabled ? 'Applied on the next gateway connection.' : 'Platform identification is unchanged while off.',
+                    value: enabled,
+                    onValueChange: (value: boolean) => { void updateConfig({ enabled: value }); },
+                })),
+            D?.TableRadioGroup && D?.TableRadioRow
+                ? el(D.TableRadioGroup, {
+                    title: 'Platform',
+                    description: 'Choose the platform Discord reports for your account.',
+                    value: platform,
+                    onChange: (value: string) => { void updateConfig({ platform: value }); },
+                }, ...PLATFORMS.map((item) => el(D.TableRadioRow, { key: item.key, label: item.label, value: item.key })))
+                : el(Group, { title: 'Platform', description: 'Choose the platform Discord reports for your account.' },
+                    ...PLATFORMS.map((item) => el(ChoiceRow, {
+                        key: item.key,
+                        label: item.label,
+                        selected: item.key === platform,
+                        onPress: () => { void updateConfig({ platform: item.key }); },
+                    }))),
+            el(Group, { title: 'Apply changes' },
+                el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 } },
+                    'Force-close and reopen Discord after changing the platform.')));
     };
 }
 
@@ -461,17 +581,18 @@ let __instance: any = {
     start: startNext,
     stop: stopNext,
     SettingsComponent: function (props: any) {
+        const settingsApi = props?.api ?? props;
+        const React = getReact(settingsApi);
+        if (!React?.createElement) return null;
         try {
-            if (!__builtSettings) __builtSettings = buildSettingsComponent();
-            if (__builtSettings) return __builtSettings(props);
+            if (settingsApi?.jsonStorage) jsonStorageApi = settingsApi.jsonStorage;
+            if (!__builtSettings) __builtSettings = buildSettingsComponent(settingsApi);
+            if (__builtSettings) return React.createElement(__builtSettings, { api: settingsApi });
         } catch (e) {
             hostError('settings build failed', e);
         }
-        const React = getReact();
-        const RN = getRN();
-        const el = React?.createElement;
-        if (el && RN) return el(RN.View ?? 'view', null, el(RN.Text ?? 'text', null, 'PlatformSpoofer: UI unavailable on this host'));
-        return null;
+        const RN: any = getRN(settingsApi) ?? {};
+        return React.createElement(RN.Text ?? 'text', null, 'PlatformSpoofer settings could not load on this build.');
     },
 };
 

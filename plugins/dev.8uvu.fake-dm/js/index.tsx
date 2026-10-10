@@ -808,11 +808,27 @@ function hexToInt(hex: string): number | undefined {
     return parseInt(m, 16);
 }
 
+// Discord's own design components give the settings page Discord's native look.
+// Resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(): any {
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
+
 function buildSettingsComponent() {
     const React = getReact();
     const RN = getRN();
     if (!React || !RN) return null;
     const el = React.createElement;
+    const D = resolveDesign();
     const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null } = RN;
 
     const isDark = (() => {
@@ -829,6 +845,7 @@ function buildSettingsComponent() {
 
     function Card(props: any) {
         const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
+        if (D?.TableRowGroup) return el(D.TableRowGroup, { title: props.title }, ...kids);
         return el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 6, marginTop: 8 } }, ...kids);
     }
     function Row(props: any) {
@@ -838,6 +855,14 @@ function buildSettingsComponent() {
         return el(Text, { style: { color: C.sub, fontSize: 12, fontWeight: '700', marginBottom: 4 } }, props.children);
     }
     function Input(props: any) {
+        const NativeInput = D?.TextInput ?? D?.TextField ?? null;
+        if (NativeInput) {
+            return el(NativeInput, {
+                placeholderTextColor: C.sub,
+                ...props,
+                style: [{ color: C.text, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginBottom: 8 }, props.style],
+            });
+        }
         return el(TextInput, {
             placeholderTextColor: C.sub,
             ...props,
@@ -849,6 +874,14 @@ function buildSettingsComponent() {
             el(Text, { style: { color: '#ffffff', fontWeight: '700', fontSize: 14 } }, props.label));
     }
     function SwitchRow(props: any) {
+        if (D?.TableSwitchRow) {
+            return el(D.TableSwitchRow, {
+                label: props.label,
+                subLabel: props.subLabel,
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+            });
+        }
         const toggle = Switch
             ? el(Switch, { value: !!props.value, onValueChange: props.onValueChange, trackColor: { false: 'rgba(128,128,128,0.35)', true: C.blurple }, thumbColor: '#ffffff' })
             : el(Text, { style: { color: C.sub }, onPress: () => props.onValueChange(!props.value) }, props.value ? 'On' : 'Off');

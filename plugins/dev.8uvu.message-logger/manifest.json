@@ -10,7 +10,7 @@
         "description": "Message logger with searchable deleted/edited history, inline edit history, image caching, and a redesigned settings viewer",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.6.7",
+    "version": "1.6.8",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }

@@ -82,7 +82,7 @@ async function main() {
     }
     modules.updateRows.updateRows('chan-1', JSON.stringify([{ type: 1, message: { id: 'edited-1', content: 'after' } }]));
     const edited = modules.lastRows.find((row) => row.message.id === 'edited-1');
-    if (!edited || edited.message.textColor !== '#afb2b4' || edited.backgroundHighlight) throw new Error('edited row is not neutrally dimmed without a highlight: ' + JSON.stringify(edited));
+    if (!edited || edited.message.textColor !== undefined || edited.backgroundHighlight || edited.highlight || edited.highlightColor || edited.highlightBackgroundColor || edited.message.backgroundColor !== undefined) throw new Error('edited row still carries plugin highlight styling: ' + JSON.stringify(edited));
 
     await plugin.stop();
     console.log('VERIFY OK: settings UI, event registration and edit row styling');

@@ -191,7 +191,45 @@ function handlePayload(payload: any) {
 
 // ---- Settings UI (React, no JSX) --------------------------------------------
 
+// Discord's theme store decides light vs dark; default dark. Plain Text without
+// an explicit color renders black on the dark theme, so every label sets one.
+function settingsInk(): { text: string; sub: string; input: string } {
+    let dark = true;
+    try {
+        const tm: any = (globalThis as any).revenge?.metro?.findByProps?.('theme', 'setTheme');
+        const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
+        if (t) dark = String(t).toLowerCase().includes('dark');
+    } catch {}
+    return dark
+        ? { text: '#ffffff', sub: '#9ba0a8', input: '#232428' }
+        : { text: '#060607', sub: '#5c5e66', input: '#ebedef' };
+}
+
+// Discord's own design components give the settings page Discord's native look.
+// Resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(api?: any): any {
+    const candidates: any[] = [api?.design, api?.discord?.design, api?.unscoped?.discord?.design, api?.unscoped?.design];
+    for (const candidate of candidates) {
+        try {
+            const d = candidate?.Design ?? candidate;
+            if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+        } catch {}
+    }
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
+
 function makeSettingsComponent() {
+    const ink = settingsInk();
+    const D: any = resolveDesign();
     const React = getReact();
     if (!React) return () => null;
     const el = React.createElement.bind(React);
@@ -205,31 +243,28 @@ function makeSettingsComponent() {
                 onPress: () => props.onValueChange(!props.value),
                 style: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
             },
-            el(Text, { style: { flex: 1 } }, props.label),
-            el(Text, { style: { opacity: 0.7, marginLeft: 8 } }, props.value ? 'On' : 'Off'),
+            el(Text, { style: { flex: 1, color: ink.text } }, props.label),
+            el(Text, { style: { color: ink.sub, marginLeft: 8 } }, props.value ? 'On' : 'Off'),
         );
 
     function SwitchRow(props: any) {
-        let design: any = null;
-        try {
-            design = (revenge as any).discord.design;
-        } catch {}
-        const Row = design?.TableSwitchRow ?? design?.Design?.TableSwitchRow;
-        if (Row) return el(Row, props, null);
+        if (D?.TableSwitchRow) {
+            return el(D.TableSwitchRow, {
+                label: props.label,
+                subLabel: props.subLabel,
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+            });
+        }
         return el(SwitchRowFallback, props, null);
     }
 
     function RowGroup(props: any) {
-        let design: any = null;
-        try {
-            design = (revenge as any).discord.design;
-        } catch {}
-        const Group = design?.TableRowGroup ?? design?.Design?.TableRowGroup;
-        if (Group) return el(Group, { title: props.title }, ...props.children);
+        if (D?.TableRowGroup) return el(D.TableRowGroup, { title: props.title, description: props.description }, ...props.children);
         return el(
             View,
             { style: { marginVertical: 8 } },
-            el(Text, { style: { fontWeight: 'bold', padding: 12 } }, props.title),
+            el(Text, { style: { fontWeight: 'bold', padding: 12, color: ink.text } }, props.title),
             ...props.children,
         );
     }
@@ -260,7 +295,7 @@ function makeSettingsComponent() {
                     onPress: () => toggleMode(mode),
                     style: { paddingVertical: 8, paddingHorizontal: 12 },
                 },
-                el(Text, { style: { fontWeight: settings?.mode === mode ? 'bold' : 'normal' } }, label),
+                el(Text, { style: { fontWeight: settings?.mode === mode ? 'bold' : 'normal', color: ink.text } }, label),
             );
 
         return el(
@@ -276,7 +311,7 @@ function makeSettingsComponent() {
                     onValueChange: (v: boolean) => api?.jsonStorage?.set?.({ enabled: v }),
                 }),
                 el(View, { style: { flexDirection: 'row', paddingVertical: 4 } }, btn('blacklist', 'Blacklist mode'), btn('whitelist', 'Whitelist mode')),
-                el(Text, { style: { paddingHorizontal: 16, opacity: 0.7 } },
+                el(Text, { style: { paddingHorizontal: 16, color: ink.sub } },
                     settings?.mode === 'whitelist'
                         ? 'Only keep the query parameters listed below.'
                         : 'Strip known tracking parameters (plus any custom ones below).',
@@ -285,14 +320,14 @@ function makeSettingsComponent() {
             el(
                 RowGroup,
                 { title: settings?.mode === 'whitelist' ? 'Whitelisted parameters' : 'Extra blacklisted parameters' },
-                el(TextInput, {
+                el(D?.TextInput ?? D?.TextField ?? TextInput, {
                     placeholder: settings?.mode === 'whitelist' ? 'ref, q, …' : 'my_param, another_one, …',
                     defaultValue: settings?.mode === 'whitelist' ? settings?.customWhitelist ?? '' : settings?.customBlacklist ?? '',
                     onChangeText: (t: string) =>
                         api?.jsonStorage?.set?.(
                             settings?.mode === 'whitelist' ? { customWhitelist: t } : { customBlacklist: t },
                         ),
-                    style: { padding: 8 },
+                    style: { padding: 8, color: ink.text, backgroundColor: ink.input, borderRadius: 8 },
                 }),
             ),
         );

@@ -9,11 +9,11 @@
 //
 // Hard rules honored here:
 //   - ZERO `revenge.*` access at eval time.
-//   - Settings UI is plain React Native components, Hermes-safe children.
+//   - Settings UI is plain React Native components that always render.
 //   - Toasts via ToastActionCreators.open (+ ToastAndroid fallback).
 //   - Dispatcher subscriptions are removed on stop().
 
-let PLUGIN_VERSION = '1.1.0';
+const PLUGIN_VERSION = '1.4.0';
 
 // ---- Host lookups (lazy) -------------------------------------------------------
 
@@ -30,7 +30,11 @@ function getMetro(): any {
     return null;
 }
 
-function getReact(): any {
+function getReact(api?: any): any {
+    try {
+        const react = api?.unscoped?.react?.React ?? api?.react?.React;
+        if (react?.createElement && react?.useState) return react;
+    } catch {}
     try {
         const m = getMetro();
         const r = m?.findByDisplayName?.('React') ?? m?.findByProps?.('createElement', 'cloneElement') ?? null;
@@ -42,7 +46,11 @@ function getReact(): any {
     return null;
 }
 
-function getRN(): any {
+function getRN(api?: any): any {
+    try {
+        const rn = api?.unscoped?.react?.ReactNative ?? api?.react?.ReactNative;
+        if (rn?.View && rn?.Text) return rn;
+    } catch {}
     try {
         const m = getMetro();
         const rn = m?.findByDisplayName?.('ReactNative') ?? m?.findByProps?.('View', 'Text', 'TextInput') ?? null;
@@ -54,7 +62,11 @@ function getRN(): any {
     return null;
 }
 
-function findStore(name: string, props: string[]): any {
+function findStore(name: string, props: string[], api?: any): any {
+    try {
+        const s = api?.unscoped?.discord?.flux?.Stores ?? api?.discord?.flux?.Stores;
+        if (s?.[name]) return s[name];
+    } catch {}
     try {
         const s = (typeof revenge !== 'undefined' && revenge?.discord?.flux?.Stores) || null;
         if (s?.[name]) return s[name];
@@ -74,11 +86,15 @@ function findStore(name: string, props: string[]): any {
     return null;
 }
 
-function getUserStore(): any {
-    return findStore('UserStore', ['getCurrentUser']);
+function getUserStore(api?: any): any {
+    return findStore('UserStore', ['getCurrentUser'], api);
 }
 
-function getFlux(): any | null {
+function getFlux(api?: any): any | null {
+    try {
+        const flux = api?.unscoped?.discord?.flux ?? api?.discord?.flux;
+        if (typeof flux?.onFluxEventDispatched === 'function') return flux;
+    } catch {}
     try {
         if (typeof revenge !== 'undefined') {
             const flux = revenge?.discord?.flux;
@@ -180,6 +196,8 @@ let cfg = {
 };
 
 let jsonStorageApi: any = null;
+// Set while the settings page is mounted so it re-renders on new departures.
+let settingsChangedCb: (() => void) | null = null;
 
 async function loadConfig() {
     try {
@@ -199,6 +217,7 @@ async function persistConfig() {
     } catch (e) {
         hostError('persistConfig failed', e);
     }
+    settingsChangedCb?.();
 }
 
 // ---- Tracking state ------------------------------------------------------------------
@@ -257,7 +276,7 @@ export function handlePresence(payload: any): boolean {
             const u = getUserStore()?.getUser?.(userId);
             toast((u?.globalName ?? u?.username ?? 'Someone') + ' went offline');
         }
-        persistConfig();
+        void persistConfig();
         return true;
     } catch {
         return false;
@@ -270,10 +289,39 @@ export function getLastSeen(): Record<string, number> {
 
 export function clearLastSeen() {
     for (const k of Object.keys(lastSeenRaw)) delete lastSeenRaw[k];
-    persistConfig();
+    void persistConfig();
+}
+
+// Users the presence store already reports online when we start count as
+// witnessed-online from now on, so their next departure is recorded.
+function seedOnlineFromStore(api?: any): number {
+    try {
+        const store: any = findStore('PresenceStore', ['getStatus'], api);
+        const getter = typeof store?.getOnlineUserIds === 'function' ? store.getOnlineUserIds
+            : typeof store?.getOnlineFriendIds === 'function' ? store.getOnlineFriendIds
+            : null;
+        const ids = getter ? getter.call(store) : null;
+        if (!Array.isArray(ids)) return 0;
+        const now = Date.now();
+        let seeded = 0;
+        for (const id of ids) {
+            const key = String(id);
+            if (!seenOnlineAt.has(key)) {
+                seenOnlineAt.set(key, now);
+                seeded++;
+            }
+        }
+        return seeded;
+    } catch {
+        return 0;
+    }
 }
 
 // ---- Dispatcher hookup -------------------------------------------------------------
+
+// Discord emits single-user PRESENCE_UPDATE and batched PRESENCE_UPDATES; we
+// listen to both and accept either payload shape.
+const PRESENCE_EVENTS = ['PRESENCE_UPDATE', 'PRESENCE_UPDATES'];
 
 let presenceCleanups: (() => void)[] = [];
 let cleanupApi: ((off: (() => void) | undefined) => void) | null = null;
@@ -286,23 +334,29 @@ function registerPresenceCleanup(off: (() => void) | undefined) {
 }
 
 function receivePresence(payload: any) {
-    const batches = Array.isArray(payload?.presences) ? payload.presences
-        : Array.isArray(payload?.updates) ? payload.updates
+    const updates = Array.isArray(payload?.updates) ? payload.updates
+        : Array.isArray(payload?.presences) ? payload.presences
         : Array.isArray(payload?.users) ? payload.users
         : Array.isArray(payload) ? payload
         : [payload];
-    for (const item of batches) {
-        try { handlePresence(item); } catch {}
+    for (const item of updates) {
+        const id = item?.user?.id ?? item?.userId ?? item?.user_id;
+        const clientStatus = item?.clientStatus ?? item?.client_status ?? null;
+        // Prefer the explicit status; fall back to an active client as "online".
+        const status = typeof item?.status === 'string' ? item.status
+            : clientStatus && Object.keys(clientStatus).length ? 'online'
+            : null;
+        if (id && status) handlePresence({ userId: String(id), status });
     }
+    settingsChangedCb?.();
 }
 
-function subscribePresence(): boolean {
+function subscribePresence(api?: any): boolean {
     if (presenceCleanups.length) return true;
-    const flux = getFlux();
+    const flux = getFlux(api);
     const fd = getDispatcher();
-    const events = ['PRESENCE_UPDATES', 'PRESENCE_UPDATE'];
     let installed = 0;
-    for (const event of events) {
+    for (const event of PRESENCE_EVENTS) {
         const listener = (payload: any) => {
             receivePresence(payload);
             return payload;
@@ -335,11 +389,6 @@ function subscribePresence(): boolean {
                     installed++;
                     continue;
                 }
-                if (typeof flux.removeInterceptor === 'function') {
-                    registerPresenceCleanup(() => flux.removeInterceptor(off));
-                    installed++;
-                    continue;
-                }
             }
         } catch (e) {
             hostError('flux interceptor ' + event + ' hook failed', e);
@@ -368,6 +417,16 @@ function unsubscribePresence() {
 let cleanupFns: (() => void)[] = [];
 
 async function startNext(api: any) {
+    // Revenge stops AND DISABLES a plugin whose lifecycle throws, which would
+    // hide its settings page entirely. Every startup failure stays contained.
+    try {
+        await startPlugin(api);
+    } catch (e) {
+        hostError('start failed', e);
+    }
+}
+
+async function startPlugin(api: any) {
     jsonStorageApi = api?.jsonStorage ?? getStorage();
     cleanupApi = typeof api?.cleanup === 'function' ? api.cleanup : null;
     await loadConfig();
@@ -384,7 +443,8 @@ async function startNext(api: any) {
     } catch (e) {
         hostError('restore lastSeen failed', e);
     }
-    if (!subscribePresence()) hostError('no presence event API found; tracking is inactive');
+    if (!subscribePresence(api)) hostError('no presence event API found; tracking is inactive');
+    seedOnlineFromStore(api);
 }
 
 async function stopNext() {
@@ -395,6 +455,7 @@ async function stopNext() {
     cleanupFns = [];
     await persistConfig();
     cleanupApi = null;
+    settingsChangedCb = null;
 }
 
 // ---- Settings UI -------------------------------------------------------------------------
@@ -407,103 +468,188 @@ function relTime(ts: number): string {
     return Math.floor(diff / 86_400_000) + 'd ago';
 }
 
-function buildSettingsComponent() {
-    const React = getReact();
-    const RN = getRN();
-    if (!React || !RN) return null;
-    const el = React.createElement;
-    const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null } = RN;
+// Discord's theme store decides light vs dark colors; default dark.
+function isDarkTheme(): boolean {
+    try {
+        const tm = getMetro()?.findByProps?.('theme', 'setTheme');
+        const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
+        if (t) return String(t).toLowerCase().includes('dark');
+    } catch {}
+    return true;
+}
 
-    const isDark = (() => {
+// Discord's own design components give the settings page Discord's native look.
+// They are resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(api?: any): any {
+    const candidates: any[] = [api?.design, api?.discord?.design, api?.unscoped?.discord?.design, api?.unscoped?.design];
+    for (const candidate of candidates) {
         try {
-            const tm = findStore('ThemeManager', ['theme', 'resolvedTheme']) ?? getMetro()?.findByProps?.('theme', 'setTheme');
-            const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
-            if (t) return String(t).toLowerCase().includes('dark');
+            const d = candidate?.Design ?? candidate;
+            if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
         } catch {}
-        return true;
-    })();
-    const C = isDark
-        ? { bg: '#111214', card: '#1a1b1e', text: '#ffffff', sub: '#9ba0a8', input: '#232428', chip: '#2b2d31', blurple: '#5865F2', danger: '#f04747', ok: '#23a55a' }
-        : { bg: '#f2f3f5', card: '#ffffff', text: '#060607', sub: '#5c5e66', input: '#ebedef', chip: '#e3e5e8', blurple: '#5865F2', danger: '#d83c3e', ok: '#248046' };
+    }
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
 
-    function Card(props: any) {
-        const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
-        return el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 6, marginTop: 8 } }, ...kids);
+function buildSettingsComponent(api: any) {
+    const React = getReact(api);
+    if (!React?.createElement || typeof React.useState !== 'function') return null;
+    const el = React.createElement;
+    const RN: any = getRN(api) ?? {};
+    const View = RN.View ?? 'view';
+    const Text = RN.Text ?? 'text';
+    const Pressable = RN.Pressable ?? View;
+    const ScrollView = RN.ScrollView ?? View;
+    const Switch = RN.Switch ?? null;
+    const C = isDarkTheme()
+        ? { text: '#ffffff', sub: '#9ba0a8', card: '#1a1b1e', accent: '#5865F2', danger: '#f04747' }
+        : { text: '#060607', sub: '#5c5e66', card: '#ffffff', accent: '#5865F2', danger: '#d83c3e' };
+    const kids = (c: any) => (Array.isArray(c) ? c : c == null ? [] : [c]);
+    const D = resolveDesign(api);
+
+    function Group(props: any) {
+        if (D?.TableRowGroup) {
+            return el(D.TableRowGroup, { title: props.title, description: props.description }, ...kids(props.children));
+        }
+        return el(View, { style: { marginTop: 16 } },
+            el(Text, { style: { color: C.text, fontSize: 15, fontWeight: '600', paddingHorizontal: 16, marginBottom: 4 } }, props.title),
+            props.description ? el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 6 } }, props.description) : null,
+            el(View, { style: { backgroundColor: C.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } }, ...kids(props.children)));
     }
-    function Label(props: any) {
-        return el(Text, { style: { color: C.sub, fontSize: 12, fontWeight: '700', marginBottom: 4 } }, props.children);
+
+    function ToggleRow(props: any) {
+        if (D?.TableSwitchRow) {
+            return el(D.TableSwitchRow, {
+                label: props.label,
+                subLabel: props.subLabel,
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+            });
+        }
+        const control = Switch
+            ? el(Switch, {
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+                accessibilityLabel: props.label,
+                trackColor: { false: 'rgba(128,128,128,0.35)', true: C.accent },
+                thumbColor: '#ffffff',
+            })
+            : el(Text, {
+                accessibilityLabel: props.label,
+                style: { color: C.accent, fontWeight: '700' },
+                onPress: () => props.onValueChange(!props.value),
+            }, props.value ? 'On' : 'Off');
+        return el(View, { style: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16 } },
+            el(View, { style: { flex: 1, paddingRight: 12 } },
+                el(Text, { style: { color: C.text, fontSize: 16 } }, props.label),
+                props.subLabel ? el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null),
+            control);
     }
-    function Input(props: any) {
-        return el(TextInput, {
-            placeholderTextColor: C.sub,
-            ...props,
-            style: [{ backgroundColor: C.input, color: C.text, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginBottom: 8 }, props.style],
-        });
-    }
-    function Btn(props: any) {
-        return el(Pressable, { onPress: props.onPress, style: [{ backgroundColor: props.danger ? C.danger : C.blurple, borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 2 }, props.style] },
-            el(Text, { style: { color: '#ffffff', fontWeight: '700', fontSize: 14 } }, props.label));
-    }
-    function SwitchRow(props: any) {
-        const toggle = Switch
-            ? el(Switch, { value: !!props.value, onValueChange: props.onValueChange, trackColor: { false: 'rgba(128,128,128,0.35)', true: C.blurple }, thumbColor: '#ffffff' })
-            : el(Text, { style: { color: C.sub }, onPress: () => props.onValueChange(!props.value) }, props.value ? 'On' : 'Off');
-        return el(View, { style: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 } },
-            el(Text, { style: { color: C.text, fontSize: 15, flex: 1, paddingRight: 12 } }, props.label),
-            toggle);
+
+    function InfoRow(props: any) {
+        if (D?.TableRow) {
+            return el(D.TableRow, {
+                label: props.label,
+                subLabel: props.subLabel,
+                variant: props.danger ? 'danger' : undefined,
+                onPress: props.onPress,
+            });
+        }
+        return el(Pressable, {
+            onPress: props.onPress,
+            accessibilityLabel: props.label,
+            style: { paddingVertical: 10, paddingHorizontal: 16 },
+        },
+            el(Text, { style: { color: props.danger ? C.danger : C.text, fontSize: 16 } }, props.label),
+            props.subLabel ? el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null);
     }
 
     return function LastOnlineSettings(props: any) {
-        if (jsonStorageApi == null && props?.api?.jsonStorage) {
-            jsonStorageApi = props.api.jsonStorage;
-        }
+        const settingsApi = props?.api ?? api;
+        const storage = settingsApi?.jsonStorage ?? jsonStorageApi;
+        jsonStorageApi = storage;
         const [, force] = React.useState(0);
-        const [q, setQ] = React.useState('');
         React.useEffect(() => {
-            const timer = setInterval(() => force((n: number) => n + 1), 5000);
-            return () => clearInterval(timer);
+            settingsChangedCb = () => force((n: number) => n + 1);
+            return () => {
+                settingsChangedCb = null;
+            };
         }, []);
-
+        let stored: any = {};
+        try {
+            stored = storage?.use?.() ?? storage?.cache ?? {};
+        } catch {
+            stored = storage?.cache ?? {};
+        }
+        // The in-memory history is authoritative; storage only drives the toggles.
+        const persist = typeof stored?.persist === 'boolean' ? stored.persist : cfg.persist;
+        const notify = typeof stored?.notify === 'boolean' ? stored.notify : cfg.notify;
         const entries = Object.entries(getLastSeen())
+            .filter(([, ts]) => typeof ts === 'number' && ts > 0)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 80)
             .map(([id, ts]) => {
-                const u = getUserStore()?.getUser?.(id);
-                return { id, ts, name: String(u?.globalName ?? u?.global_name ?? u?.username ?? 'ID ' + id) };
-            })
-            .filter((e) => !q.trim() || e.name.toLowerCase().includes(q.trim().toLowerCase()))
-            .sort((a, b) => b.ts - a.ts);
+                const user = getUserStore(settingsApi)?.getUser?.(id);
+                return { id, ts, name: String(user?.globalName ?? user?.global_name ?? user?.username ?? 'User ' + id) };
+            });
+        const tracking = presenceCleanups.length > 0;
 
-        const kids: any[] = [
-            el(View, { key: 'head', style: { paddingHorizontal: 14, paddingTop: 8 } },
-                el(Text, { style: { color: C.text, fontSize: 16, fontWeight: '800' } }, 'LastOnlineTracker'),
-                el(Text, { style: { color: C.sub, fontSize: 12, marginTop: 2 } }, 'Records when people go offline — departures you actually saw. Discord never shows this.'),
-                el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 4 } }, 'A timestamp is only written after watching someone online for 15s+, so opening a server can\'t fake an exodus.'),
-                el(Text, { style: { color: presenceCleanups.length ? C.ok : C.danger, fontSize: 11, marginTop: 6 } }, presenceCleanups.length ? 'Tracking active · ' + presenceEventsSeen + ' presence updates · ' + departuresRecorded + ' departures' : 'Tracking inactive · no supported presence event hook found'),
-                lastPresenceEventAt ? el(Text, { style: { color: C.sub, fontSize: 11, marginTop: 2 } }, 'Last presence event ' + relTime(lastPresenceEventAt)) : null),
-        ];
-
-        kids.push(el(View, { key: 'search', style: { paddingHorizontal: 14, marginTop: 8 } },
-            el(Label, null, 'Search recorded people'),
-            el(Input, { placeholder: 'name…', value: q, onChangeText: (t: string) => setQ(t) })));
-
-        kids.push(el(Card, { key: 'list' },
-            entries.length === 0
-                ? el(Text, { style: { color: C.sub, fontSize: 13, paddingHorizontal: 14, paddingVertical: 10 } }, 'Nobody recorded yet — it fills as you watch friends go offline.')
-                : entries.slice(0, 80).map((e) =>
-                    el(View, { key: e.id, style: { paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.input, flexDirection: 'row', justifyContent: 'space-between' } },
-                        el(Text, { style: { color: C.text, fontSize: 14, flex: 1 } }, e.name),
-                        el(Text, { style: { color: C.sub, fontSize: 13 } }, 'offline ' + relTime(e.ts))))));
-
-        kids.push(el(Card, { key: 'opts' },
-            el(SwitchRow, { label: 'Keep last-seen times across restarts', value: cfg.persist, onValueChange: (v: boolean) => { cfg.persist = v; persistConfig(); force((n: number) => n + 1); } }),
-            el(SwitchRow, { label: 'Toast when someone goes offline', value: cfg.notify, onValueChange: (v: boolean) => { cfg.notify = v; persistConfig(); force((n: number) => n + 1); } })));
-
-        kids.push(el(View, { key: 'clear', style: { paddingHorizontal: 12, marginTop: 8 } },
-            el(Btn, {
-                label: 'Clear all recorded times', danger: true,
-                onPress: () => { clearLastSeen(); force((n: number) => n + 1); toast('Last-seen times cleared'); },
-            })));
-
-        return el(ScrollView, { style: { flex: 1, backgroundColor: C.bg } }, ...kids);
+        return el(ScrollView, { contentContainerStyle: { paddingBottom: 24 } },
+            el(Group, { title: 'LastOnlineTracker', description: 'Records when friends go offline, from presence changes this plugin witnessed.' },
+                el(ToggleRow, {
+                    label: 'Keep last-seen times across restarts',
+                    subLabel: 'Save recorded departures on this device.',
+                    value: persist,
+                    onValueChange: (value: boolean) => {
+                        cfg.persist = value;
+                        void storage?.set?.({ persist: value, lastSeen: value ? getLastSeen() : {} });
+                        settingsChangedCb?.();
+                    },
+                }),
+                el(ToggleRow, {
+                    label: 'Offline notifications',
+                    subLabel: 'Show a notification when someone goes offline.',
+                    value: notify,
+                    onValueChange: (value: boolean) => {
+                        cfg.notify = value;
+                        void storage?.set?.({ notify: value });
+                        settingsChangedCb?.();
+                    },
+                })),
+            el(Group, { title: 'Last online', description: 'Only departures observed after at least 15 seconds online are recorded.' },
+                ...(entries.length
+                    ? entries.map((entry) => el(InfoRow, {
+                        key: entry.id,
+                        label: entry.name,
+                        subLabel: 'Offline ' + relTime(entry.ts),
+                    }))
+                    : [el(InfoRow, {
+                        key: 'empty',
+                        label: 'No departures recorded yet',
+                        subLabel: tracking
+                            ? 'Tracking is active; this list fills as friends go offline.'
+                            : 'Tracking is inactive: presence events are not reaching the plugin.',
+                    })])),
+            el(Group, { title: 'History controls' },
+                el(InfoRow, {
+                    label: 'Clear last-online history',
+                    subLabel: 'Remove every saved departure from this device.',
+                    danger: true,
+                    onPress: () => { clearLastSeen(); },
+                }),
+                el(InfoRow, {
+                    label: tracking ? 'Tracking active' : 'Tracking inactive',
+                    subLabel: `${presenceEventsSeen} presence updates · ${departuresRecorded} departures recorded`,
+                })));
     };
 }
 
@@ -514,17 +660,17 @@ let __instance: any = {
     start: startNext,
     stop: stopNext,
     SettingsComponent: function (props: any) {
+        const api = props?.api ?? jsonStorageApi ?? null;
+        const React = getReact(api);
+        if (!React?.createElement) return null;
         try {
-            if (!__builtSettings) __builtSettings = buildSettingsComponent();
-            if (__builtSettings) return __builtSettings(props);
+            if (!__builtSettings) __builtSettings = buildSettingsComponent(api);
+            if (__builtSettings) return React.createElement(__builtSettings, { api });
         } catch (e) {
             hostError('settings build failed', e);
         }
-        const React = getReact();
-        const RN = getRN();
-        const el = React?.createElement;
-        if (el && RN) return el(RN.View ?? 'view', null, el(RN.Text ?? 'text', null, 'LastOnlineTracker: UI unavailable on this host'));
-        return null;
+        const RN: any = getRN(api) ?? {};
+        return React.createElement(RN.Text ?? 'text', null, 'LastOnlineTracker settings could not load on this build.');
     },
 };
 
@@ -553,6 +699,5 @@ __instance.onUnload = function () {
 };
 __instance.settings = __instance.SettingsComponent;
 __instance.settingsComponentLazy = __instance.SettingsComponent;
-__instance.__engine.getDiagnostics = () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt });
 
 export default __instance;

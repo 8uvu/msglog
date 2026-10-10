@@ -71,7 +71,7 @@ function probeVendetta(): void {
         push('vendetta.metro.common.React', !!v?.metro?.common?.React);
         push('vendetta.metro.common.FluxDispatcher', !!v?.metro?.common?.FluxDispatcher);
         push('dispatcher.addInterceptor', typeof (v?.metro?.common?.FluxDispatcher ?? v?.common?.FluxDispatcher)?.addInterceptor);
-        push('vendetta.ui.toasts.showToast', typeof v?.ui?.toasts?.showToast ?? typeof v?.common?.toasts?.showToast);
+        push('vendetta.ui.toasts.showToast', typeof (v?.ui?.toasts?.showToast ?? v?.common?.toasts?.showToast));
         push('vendetta.metro.findByStoreName', typeof v?.metro?.findByStoreName);
         try {
             const us = v?.metro?.findByStoreName?.('UserStore');
@@ -123,23 +123,66 @@ function reactNative(): any {
     return _RN;
 }
 
+// Discord's theme store decides light vs dark; default dark. Plain Text without
+// an explicit color renders black on the dark theme, so every label sets one.
+function settingsInk(): { text: string; sub: string } {
+    let dark = true;
+    try {
+        const tm: any = (globalThis as any).revenge?.metro?.findByProps?.('theme', 'setTheme');
+        const t = tm?.theme ?? tm?.resolvedTheme ?? tm?.currentTheme;
+        if (t) dark = String(t).toLowerCase().includes('dark');
+    } catch {}
+    return dark ? { text: '#ffffff', sub: '#9ba0a8' } : { text: '#060607', sub: '#5c5e66' };
+}
+
+// Discord's own design components give the settings page Discord's native look.
+// Resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(): any {
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
+
 function makeSettings(): any {
+    const ink = settingsInk();
     const React = react();
     const RN = reactNative();
     if (!React || !RN) return null;
     const { View, Text, ScrollView } = RN;
     const el = React.createElement;
+    const D = resolveDesign();
     return function Settings() {
+        try {
+            if (D?.TableRowGroup && D?.TableRow) {
+                return el(
+                    ScrollView,
+                    { style: { flex: 1 } },
+                    el(
+                        D.TableRowGroup,
+                        { title: 'Host' },
+                        el(D.TableRow, { key: 'summary', label: 'Host probe', subLabel: summary() }),
+                        ...rows.map((r, i) => el(D.TableRow, { key: i, label: r.key, subLabel: r.value })),
+                    ),
+                );
+            }
+        } catch {}
         return el(
             ScrollView,
             { style: { flex: 1 } },
-            el(View, { style: { padding: 12 } }, el(Text, { style: { fontWeight: 'bold', marginBottom: 8 } }, summary())),
+            el(View, { style: { padding: 12 } }, el(Text, { style: { fontWeight: 'bold', marginBottom: 8, color: ink.text } }, summary())),
             rows.map((r, i) =>
                 el(
                     View,
                     { key: i, style: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 } },
-                    el(Text, { style: { flex: 1 } }, r.key),
-                    el(Text, { style: { opacity: 0.7 } }, r.value),
+                    el(Text, { style: { flex: 1, color: ink.text } }, r.key),
+                    el(Text, { style: { color: ink.sub } }, r.value),
                 ),
             ),
         );
@@ -198,7 +241,12 @@ function runProbe(startApi: any): void {
 let _settings: any = null;
 function SettingsComponent(props: any) {
     if (!_settings) _settings = makeSettings();
-    if (!_settings) return null;
+    if (!_settings) {
+        const React0 = react();
+        const RN0 = reactNative();
+        if (React0 && RN0?.Text) return React0.createElement(RN0.Text, { style: { color: settingsInk().text, padding: 12 } }, 'HostProbe settings could not load on this build.');
+        return null;
+    }
     const React = react();
     return _settings(props);
 }

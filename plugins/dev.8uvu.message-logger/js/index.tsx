@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.6.7';
+const PLUGIN_VERSION = '1.6.8';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -1448,11 +1448,15 @@ function paintRow(row: any, processColor: (c: any) => any) {
             gutterColor: red,
         };
     } else {
-        // Keep the edit treatment neutral, like Equicord's dimmed edit history.
-        // Match Equicord/Vencord's edited treatment: dim existing text rather
-        // than tinting it, while clearing any stale deleted-row highlight.
-        msg.textColor = processColor('#afb2b4');
+        // Never style edited messages. Older builds wrote yellow row
+        // highlights; clear every known native paint field so the row uses
+        // Discord's own theme and text rendering.
         delete row.backgroundHighlight;
+        delete row.highlight;
+        delete row.highlightColor;
+        delete row.highlightBackgroundColor;
+        delete msg.textColor;
+        delete msg.backgroundColor;
     }
     // Equicord "Inline Edits": previous versions shown inside the message.
     // Dedupe by content (not a painted flag) so a re-render never stacks —
@@ -1625,7 +1629,7 @@ function viewerColors() {
             deleted: '#d83c3e',
             deletedBg: 'rgba(216,60,62,0.10)',
             edited: '#4e5058',
-            editedBg: 'rgba(0,0,0,0.05)',
+            editedBg: 'transparent',
         };
     }
     return {
@@ -1636,11 +1640,26 @@ function viewerColors() {
         deleted: '#f23f43',
         deletedBg: 'rgba(242,63,67,0.14)',
         edited: '#949ba4',
-        editedBg: 'rgba(255,255,255,0.06)',
+        editedBg: 'transparent',
     };
 }
 
 // ---- Settings viewer (React, no JSX) ---------------------------------------
+
+// Discord's own design components give the settings page Discord's native look.
+// Resolved lazily (never at eval time) so the host cannot kill us.
+function resolveDesign(): any {
+    try {
+        const g: any = (globalThis as any).revenge?.discord?.design;
+        const d = g?.Design ?? g;
+        if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+    } catch {}
+    try {
+        const b: any = (globalThis as any).bunny?.ui;
+        if (b?.FormTableRowGroup) return b;
+    } catch {}
+    return null;
+}
 
 function makeSettingsComponent() {
     const React = getReact();
@@ -1648,8 +1667,18 @@ function makeSettingsComponent() {
     const el = React.createElement.bind(React);
     const RN = getRN() || {};
     const { View = 'view', Text = 'text', TextInput = 'input', Pressable = View, ScrollView = View, Switch = null, Image = null } = RN;
+    const D = resolveDesign();
+    const DInput = D?.TextInput ?? D?.TextField ?? TextInput;
 
     function SwitchRow(props: any) {
+        if (D?.TableSwitchRow) {
+            return el(D.TableSwitchRow, {
+                label: props.label,
+                subLabel: props.subLabel,
+                value: !!props.value,
+                onValueChange: props.onValueChange,
+            });
+        }
         const c = viewerColors();
         const toggle = Switch
             ? el(Switch, {
@@ -1681,6 +1710,7 @@ function makeSettingsComponent() {
         // Hermes: spreading a single (non-array) child throws "iterator method
         // is not callable" — normalize children to an array first.
         const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
+        if (D?.TableRowGroup) return el(D.TableRowGroup, { title: props.title }, ...kids);
         return el(
             View,
             { style: { marginTop: 16 } },
@@ -1887,7 +1917,7 @@ function makeSettingsComponent() {
                 sw('colorHighlights', 'Red highlight in chat', 'Deleted messages stay visible with red text (Vencord style)'),
                 sw('saveImages', 'Save deleted images', 'Downloads images from deleted messages into device storage'),
                 el(DText, null, 'Attachment size limit (MB) — larger files are not saved.'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: '100',
                     placeholderTextColor: C.sub,
                     defaultValue: String(settings?.attachmentSizeLimitMB ?? 100),
@@ -1898,7 +1928,7 @@ function makeSettingsComponent() {
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 el(DText, null, 'Attachment file extensions — comma-separated allowlist.'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: 'png,jpg,jpeg,gif,webp',
                     placeholderTextColor: C.sub,
                     defaultValue: settings?.attachmentExtensions ?? 'png,jpg,jpeg,gif,webp',
@@ -1906,7 +1936,7 @@ function makeSettingsComponent() {
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 el(DText, null, 'Image storage quota (GB)'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: '2',
                     placeholderTextColor: C.sub,
                     defaultValue: String(settings?.imageQuotaGB ?? 2),
@@ -1927,7 +1957,7 @@ function makeSettingsComponent() {
                 RowGroup,
                 { title: 'Filters' },
                 el(DText, null, 'Whitelisted IDs — comma-separated user/channel IDs always logged, overriding ignores.'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: 'e.g. 123456789012345678',
                     placeholderTextColor: C.sub,
                     defaultValue: settings?.whitelistedIds ?? '',
@@ -1935,7 +1965,7 @@ function makeSettingsComponent() {
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 el(DText, null, 'Ignored guilds — comma-separated server IDs never logged.'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: 'Server IDs',
                     placeholderTextColor: C.sub,
                     defaultValue: settings?.ignoredGuilds ?? '',
@@ -1943,7 +1973,7 @@ function makeSettingsComponent() {
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 el(DText, null, 'Time-based cleanup — remove entries older than this many minutes (0 = off).'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: '0',
                     placeholderTextColor: C.sub,
                     defaultValue: String(settings?.timeBasedCleanupMinutes ?? 0),
@@ -1958,7 +1988,7 @@ function makeSettingsComponent() {
                 RowGroup,
                 { title: 'Ignored IDs' },
                 el(DText, null, 'Comma-separated channel IDs never get logged.'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: 'Channel IDs',
                     placeholderTextColor: C.sub,
                     defaultValue: settings?.ignoredChannels ?? '',
@@ -1966,7 +1996,7 @@ function makeSettingsComponent() {
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
                 el(DText, null, 'Comma-separated user IDs never get logged.'),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: 'User IDs',
                     placeholderTextColor: C.sub,
                     defaultValue: settings?.ignoredUsers ?? '',
@@ -2020,7 +2050,7 @@ function makeSettingsComponent() {
                 RowGroup,
                 { title: 'Saved log (' + visible.length + ' shown)' },
                 el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4 } }, tab('all', 'All'), tab('deleted', 'Deleted'), tab('edited', 'Edited'), tab('ghost', 'Ghost pings')),
-                el(TextInput, {
+                el(DInput, {
                     placeholder: 'Search author or text…',
                     placeholderTextColor: C.sub,
                     value: query,
