@@ -7,12 +7,12 @@ Custom Revenge plugins by 8uvu.
 | Plugin | What it does | Install URL |
 | --- | --- | --- |
 | **MessageLogger** | Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with edit diffs, image caching and import/export. | `https://8uvu.github.io/msglog/dev.8uvu.message-logger/` |
-| **FakeDM** | Injects fake messages, calls, system messages, reactions and embeds into any DM or channel, with batch conversations that survive a restart. | `https://8uvu.github.io/msglog/dev.8uvu.fake-dm/` |
-| **Clean URLs** | Strips tracking parameters (`utm_*`, `fbclid`, `gclid`, `igshid`, ...) from links in messages, with blacklist and whitelist modes. | `https://8uvu.github.io/msglog/dev.8uvu.clean-urls/` |
-| **PlatformSpoofer** | Spoofs the platform Discord shows next to your name (desktop, web, iOS, Xbox, ...). | `https://8uvu.github.io/msglog/dev.8uvu.platform-spoofer/` |
-| **LastOnlineTracker** | Records when friends go offline — a "last seen" Discord never shows you. Only counts departures you witnessed, so server syncs cannot fake them. Watches three independent presence sources and reports in its settings which ones this build actually exposes. | `https://8uvu.github.io/msglog/dev.8uvu.last-online-tracker/` |
-| **HostProbe** | Diagnostic: reports which loader and APIs your Revenge build actually exposes (globals, flux, storage, toasts, file module). | `https://8uvu.github.io/msglog/dev.8uvu.host-probe/` |
-| **QuickCheck** | Diagnostic: pops a native alert with your device's host diagnosis the moment the plugin is enabled. | `https://8uvu.github.io/msglog/dev.8uvu.quick-check/` |
+
+The other plugins in this repository are deliberately unlisted. They are still
+built and still installable, but only at the opaque paths recorded in
+`publish.json`, so neither the site nor this README names them. `node build.mjs`
+prints every install URL, including theirs — that is the only place to get them
+from.
 
 Add a single plugin by pasting its install URL in Revenge (Settings > Revenge >
 Plugins), or add the whole repository:
@@ -21,15 +21,15 @@ Plugins), or add the whole repository:
 https://8uvu.github.io/msglog/
 ```
 
-The bare repository URL installs **MessageLogger** (the build pins the root
-plugin to `dev.8uvu.message-logger` in `build.mjs`). Only the plugins listed in
-`PUBLISHED_PLUGIN_IDS` are advertised there — see *What gets published* below.
+The bare repository URL installs **MessageLogger** (`publish.json` pins the root
+plugin to `dev.8uvu.message-logger`). Only the ids in that file's `published`
+list are advertised there — see *What gets published* below.
 
 ## Development
 
 ```bash
 pnpm install
-node build.mjs            # write dist/ (pool zips, folder installs, index.json)
+node build.mjs            # write dist/ and print every install URL
 node scripts/verify-all.mjs   # integrity + every plugin verifier + typecheck
 node scripts/verify-live.cjs  # does the published host serve this build?
 ```
@@ -55,20 +55,42 @@ checked against a rebuild of it.
 
 ## What gets published
 
-`dist/` is the entire public surface: `index.json` (the list Revenge shows for
-the repository URL), the root install, one folder URL per plugin, the pool zips,
-and a generated 404 page. Only the plugins in `PUBLISHED_PLUGIN_IDS` — declared
-in `build.mjs` — are advertised. Everything else still builds and stays
-installable by its own folder URL, but appears nowhere public: not in
-`index.json`, not on the 404 page (which is what a directory URL such as
-`/dev.8uvu.message-logger/` returns), and not in any file the site serves.
-`scripts/check-dist.cjs` fails the build if the published surface names an
-unlisted plugin, so this cannot regress by accident.
+`dist/` is the entire public surface, and `publish.json` is the policy that
+decides its shape:
+
+- `published` — the plugin ids `index.json` advertises. That is the list
+  Revenge's plugin browser shows, and the only place the site names a plugin.
+- `root` — the plugin the bare repository URL installs.
+- `slug` — the opaque path every *other* plugin is published at instead of its
+  id: `dist/38e0c511d322/` and `dist/pool/38e0c511d322@1.2.2.zip` rather than
+  `dist/dev.8uvu.fake-dm/`. The id still travels *inside* the artifact, because
+  the host keys an install by it — no URL or filename the site serves spells it
+  out, so browsing or guessing URLs reveals nothing. (See `scripts/publish-paths.cjs`,
+  which the build, both checkers, the release command and the plugin verifiers
+  all resolve their paths through.)
+
+Every plugin folder is published with three files, so that whichever one the
+install box fetches it gets JSON instead of the 404 page — a URL answering with
+the 404 page is exactly the "failed to manifest" Revenge reports:
+
+- `manifest.json` — the manifest the host reads
+- `index.json` — a one-plugin repository index; GitHub Pages serves `index.json`
+  for a directory URL, which is what makes the bare folder link work
+- `index.js` — the bundled plugin
+
+`node build.mjs` wipes `dist/` first. It is the published surface, not a build
+cache: a file left behind by an earlier layout keeps being served, which is how
+`/dev.8uvu.fake-dm/` stayed reachable long after that plugin was unlisted.
+`scripts/check-dist.cjs` fails the build if the published surface — the index,
+the 404 page, the root install, or the *name* of anything in `dist/` — names an
+unlisted plugin, and `scripts/verify-live.cjs` fails if the deployed site still
+serves one at its real id, or if an install URL does not answer with JSON.
 
 This hides plugins from the **site**. It does not hide them from the
-**repository**: `https://github.com/8uvu/msglog` is public, so the plugin sources
-are readable there. Making the repository private — or publishing build output
-from a private repository — is the step that closes that one.
+**repository**: `https://github.com/8uvu/msglog` is public, so `plugins/` and
+`publish.json` are readable there — and anyone who reads them can work out every
+slug. Making the repository private — or keeping unlisted plugin sources out of
+it and publishing only their built artifacts — is the step that closes that one.
 
 ## Releasing
 

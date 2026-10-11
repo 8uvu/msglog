@@ -18,9 +18,10 @@ jobs:
               run: pnpm install --no-frozen-lockfile
             - name: Build plugin(s)
               run: node ./build.mjs
-            # Distribution integrity (including that the published index.json and
-            # 404 page name no unlisted plugin), every plugin verifier and the
-            # typecheck. Nothing is published unless all of this passes.
+            # Distribution integrity (including that no path or file the site
+            # serves names an unlisted plugin, and that every folder URL answers
+            # with a manifest and a one-plugin index), every plugin verifier and
+            # the typecheck. Nothing is published unless all of this passes.
             - name: Verify
               run: node ./scripts/verify-all.mjs
 
@@ -43,8 +44,9 @@ jobs:
               run: node ./build.mjs
             - name: Verify the exact build that is about to be published
               run: node ./scripts/verify-all.mjs
-            # dist/404.md is written by build.mjs. The README is deliberately
-            # NOT published: it lists every plugin in the repository.
+            # dist/ is the whole published surface: build.mjs writes it, and an
+            # unlisted plugin is published only at the opaque path from
+            # publish.json. The README is deliberately NOT published.
             - name: Deploy to GitHub Pages
               uses: peaceiris/actions-gh-pages@v3
               with:

@@ -1,0 +1,12 @@
+{
+    "root": "dev.8uvu.message-logger",
+    "published": ["dev.8uvu.message-logger"],
+    "slug": {
+        "dev.8uvu.clean-urls": "b69f98f51fba",
+        "dev.8uvu.fake-dm": "38e0c511d322",
+        "dev.8uvu.host-probe": "e05ca5a4f95c",
+        "dev.8uvu.last-online-tracker": "d6f898087cc9",
+        "dev.8uvu.platform-spoofer": "76e58bf750b1",
+        "dev.8uvu.quick-check": "93b180993c97"
+    }
+}

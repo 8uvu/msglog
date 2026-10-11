@@ -7,7 +7,11 @@
 // surfaces away and prove the fallbacks still work.
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const code = readFileSync(join(__dirname, '..', '..', 'dist', 'dev.8uvu.last-online-tracker', 'index.js'), 'utf8');
+const { requireInstallPath } = require('../../scripts/publish-paths.cjs');
+
+// The built bundle lives at whatever path the publishing policy says this plugin
+// is published at — an opaque slug while the plugin is unlisted.
+const code = readFileSync(join(__dirname, '..', '..', 'dist', requireInstallPath('dev.8uvu.last-online-tracker'), 'index.js'), 'utf8');
 
 const problems = [];
 function check(label, condition, detail) {

@@ -191,12 +191,25 @@ function checkNativePath(ui) {
     return problems;
 }
 
+// A built plugin's label. Its directory is an install path — the id when
+// publish.json advertises the plugin, an opaque slug when it does not — and the
+// deployed manifest is what carries the real id, so the report stays readable.
+function pluginId(dir) {
+    try {
+        const manifest = JSON.parse(readFileSync(join(distDir, dir, 'manifest.json'), 'utf8').replace(/^\uFEFF/, ''));
+        return manifest.id ?? dir;
+    } catch {
+        return dir;
+    }
+}
+
 async function main() {
-    const ids = readdirSync(distDir).filter((name) => existsSync(join(distDir, name, 'index.js')));
-    if (ids.length === 0) throw new Error('no built plugins in dist/; run node build.mjs first');
+    const dirs = readdirSync(distDir).filter((name) => existsSync(join(distDir, name, 'index.js')));
+    if (dirs.length === 0) throw new Error('no built plugins in dist/; run node build.mjs first');
     let failed = 0;
-    for (const id of ids) {
-        const code = readFileSync(join(distDir, id, 'index.js'), 'utf8');
+    for (const dir of dirs) {
+        const id = pluginId(dir);
+        const code = readFileSync(join(distDir, dir, 'index.js'), 'utf8');
         const problems = [];
 
         const fallback = await renderPage(id, code, null);
@@ -217,7 +230,7 @@ async function main() {
         console.error(`UI CHECK FAILED: ${failed} plugin(s)`);
         process.exit(1);
     }
-    console.log(`UI CHECK OK: ${ids.length} plugin(s) — fallback renders readably and Discord's own components are used when available`);
+    console.log(`UI CHECK OK: ${dirs.length} plugin(s) — fallback renders readably and Discord's own components are used when available`);
 }
 
 main().catch((error) => {

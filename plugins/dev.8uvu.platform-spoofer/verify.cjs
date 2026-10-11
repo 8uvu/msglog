@@ -1,7 +1,11 @@
 // Verifies the PlatformSpoofer bundle through the Revenge-style loader.
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const code = readFileSync(join(__dirname, '..', '..', 'dist', 'dev.8uvu.platform-spoofer', 'index.js'), 'utf8');
+const { requireInstallPath } = require('../../scripts/publish-paths.cjs');
+
+// Published at the path publish.json gives it — an opaque slug while it is
+// unlisted — so this keeps working if the plugin is advertised again.
+const code = readFileSync(join(__dirname, '..', '..', 'dist', requireInstallPath('dev.8uvu.platform-spoofer'), 'index.js'), 'utf8');
 const React = {
     Fragment: 'Fragment',
     createElement(type, props, ...children) {

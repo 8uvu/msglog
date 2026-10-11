@@ -3,6 +3,10 @@
 // green Actions run do not prove a browser gets the new bundle, which is the
 // whole reason this exists.
 //
+// It also checks the two things a user actually notices: that every folder URL —
+// the link pasted into Revenge — answers with JSON instead of the 404 page, and
+// that an unlisted plugin is no longer reachable at its own id.
+//
 // Usage:
 //   node scripts/verify-live.cjs                          # one pass
 //   node scripts/verify-live.cjs --wait 240               # retry until it is live
@@ -28,6 +32,15 @@ const WAIT = Number(arg('wait', 0));
 const ONLY_ID = arg('id');
 const ONLY_VERSION = arg('version');
 
+const { installPath, readPolicy } = require('./publish-paths.cjs');
+let policy;
+try {
+    policy = readPolicy();
+} catch (error) {
+    console.error(error.message);
+    process.exit(1);
+}
+
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const problems = [];
 const pending = [];
@@ -46,10 +59,12 @@ async function get(path, bust) {
     return Buffer.from(await response.arrayBuffer());
 }
 
-// The folder-URL install for a plugin: the manifest the host publishes and the
-// bundle users actually run. This is what "the same code" is measured against.
-function localInstall(id) {
-    const dir = join(DIST, id);
+// The folder-URL install for a plugin, addressed by the path it is published at
+// (its id when advertised, its opaque slug otherwise): the manifest the host
+// publishes and the bundle users actually run. This is what "the same code" is
+// measured against.
+function localInstall(path) {
+    const dir = join(DIST, path);
     const bundlePath = join(dir, 'index.js');
     const manifestPath = join(dir, 'manifest.json');
     if (!existsSync(bundlePath) || !existsSync(manifestPath)) return null;
@@ -79,6 +94,7 @@ function targets() {
         const plugin = local.plugins?.[id] ?? null;
         out.push({
             id,
+            path: installPath(id, policy),
             version,
             entry: plugin?.versions?.[version] ?? null,
             latest: plugin?.channels?.latest ?? version,
@@ -99,8 +115,12 @@ async function check(attempt) {
         pending.push(`index.json not served yet (${error.message})`);
     }
 
-    for (const { id, version, entry, latest, listed } of targets()) {
+    for (const { id, path, version, entry, latest, listed } of targets()) {
         const label = `${id}@${version}`;
+        if (!path) {
+            problems.push(`${id} is unlisted but publish.json gives it no slug — the site cannot serve it`);
+            continue;
+        }
         // There are two different questions here, and conflating them made this
         // checker cry wolf on its first run. "Is the host serving what its own
         // index promises?" must hold for every artifact; "is it serving the
@@ -114,7 +134,7 @@ async function check(attempt) {
         // What the served bytes are measured against: the host's own index entry
         // when there is one, otherwise the artifact this worktree built — the
         // only reference that exists for a plugin left out of index.json.
-        const localZipPath = join(DIST, 'pool', `${id}@${version}.zip`);
+        const localZipPath = join(DIST, 'pool', `${path}@${version}.zip`);
         const localZip = existsSync(localZipPath) ? readFileSync(localZipPath) : null;
         const reference = publishedEntry?.sha256 ?? (localZip ? sha256(localZip) : null);
         const referenceSize = publishedEntry?.size ?? localZip?.length ?? null;
@@ -136,9 +156,9 @@ async function check(attempt) {
             problems.push(`${label}: the published index advertises ${id}, which this build leaves unlisted`);
         }
 
-        const install = localInstall(id);
+        const install = localInstall(path);
         try {
-            const zip = await get(`/pool/${label}.zip`, attempt > 0);
+            const zip = await get(`/pool/${path}@${version}.zip`, attempt > 0);
             const served = sha256(zip);
             if (reference && (served !== reference || zip.length !== referenceSize)) {
                 const against = publishedEntry ? "the host's own index" : 'this build';
@@ -172,21 +192,67 @@ async function check(attempt) {
         // half a deploy: a mismatch with its own hash is broken, a mismatch
         // with our local build is just the host not having caught up.
         if (!install) continue;
+        let newLayoutLive = false;
         try {
-            const servedManifest = JSON.parse((await get(`/${id}/manifest.json`, attempt > 0)).toString('utf8'));
-            const servedHash = sha256(await get(`/${id}/index.js`, attempt > 0));
+            const servedManifest = JSON.parse((await get(`/${path}/manifest.json`, attempt > 0)).toString('utf8'));
+            const servedHash = sha256(await get(`/${path}/index.js`, attempt > 0));
+            const builtHash = sha256(readFileSync(install.bundlePath));
             if (servedManifest.hash && servedManifest.hash !== servedHash) {
-                problems.push(`${label}: ${id}/manifest.json advertises hash ${String(servedManifest.hash).slice(0, 12)}… but serves ${servedHash.slice(0, 12)}…`);
+                problems.push(`${label}: ${path}/manifest.json advertises hash ${String(servedManifest.hash).slice(0, 12)}… but serves ${servedHash.slice(0, 12)}…`);
             } else if (servedManifest.version !== version) {
                 pending.push(`${label}: folder install still serves ${servedManifest.version}`);
-            } else if (servedHash !== sha256(readFileSync(install.bundlePath))) {
+            } else if (servedHash !== builtHash) {
                 // The folder URL is how an unlisted plugin is installed, so for
                 // it this is the primary check rather than a formality.
                 if (listed || ONLY_VERSION) problems.push(`${label}: the folder-URL bundle is not the built bundle`);
                 else pending.push(`${label}: folder-URL bundle is not the built bundle yet`);
+            } else {
+                newLayoutLive = true;
             }
         } catch (error) {
             pending.push(`${label}: folder install not served yet (${error.message})`);
+        }
+
+        // The install URL has to answer with JSON. A URL that returns the 404
+        // page instead is exactly the "failed to manifest" an install reports,
+        // and nothing else here would catch a plugin that is live but
+        // uninstallable.
+        try {
+            const body = (await get(`/${path}/`, attempt > 0)).toString('utf8');
+            let parsed = null;
+            try {
+                parsed = JSON.parse(body);
+            } catch {
+                parsed = null;
+            }
+            const servesManifest = parsed && !parsed.plugins;
+            if (!parsed) problems.push(`/${path}/ did not answer with JSON — the install URL cannot become a plugin`);
+            else if (servesManifest && parsed.id !== id) problems.push(`/${path}/ answers with a manifest for ${parsed.id}`);
+            else if (!servesManifest && !parsed.plugins[id]) problems.push(`/${path}/ answers with a repository that does not list ${id}`);
+        } catch (error) {
+            pending.push(`/${path}/ not served yet (${error.message})`);
+        }
+
+        // An unlisted plugin must no longer be reachable at its own id: the
+        // opaque path is the point of it. While the previous deploy is still
+        // being served that is propagation; once this build is live at the
+        // opaque path, a named path answering with these exact bytes means the
+        // deploy published it under the real name as well.
+        if (!listed && path !== id) {
+            for (const named of [`/${id}/manifest.json`, `/pool/${id}@${version}.zip`]) {
+                let body;
+                try {
+                    body = await get(named, true);
+                } catch {
+                    continue; // a missing path is exactly the goal
+                }
+                const builtBytes = named.endsWith('.zip') ? localZip : readFileSync(join(DIST, path, 'manifest.json'));
+                if (newLayoutLive && builtBytes && sha256(body) === sha256(builtBytes)) {
+                    problems.push(`${label}: the site still serves this build at ${named} — it must only be published at /${path}/`);
+                } else {
+                    pending.push(`${label}: ${named} is still served — it must disappear from the published surface`);
+                }
+            }
         }
     }
 
@@ -231,7 +297,9 @@ async function main() {
         console.error(`LIVE VERIFY PENDING: published host has not caught up yet (${pending.length} item(s))`);
         process.exit(2);
     }
-    console.log(`LIVE VERIFY OK: ${BASE} serves this build (${targets().length} artifact(s))`);
+    console.log(
+        `LIVE VERIFY OK: ${BASE} serves this build (${targets().length} artifact(s), every install URL answers with JSON, no unlisted plugin reachable at its own name)`,
+    );
 }
 
 main().catch((error) => {

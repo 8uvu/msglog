@@ -12,10 +12,18 @@
 //        --wait <seconds> (live check budget, default 240)
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// The published layout comes from publish.json via the shared resolver, so a
+// release never has to know whether this plugin is advertised or hidden behind
+// an opaque path — and it can print the URL a user should actually paste.
+const require = createRequire(import.meta.url);
+const { installUrl, readPolicy, requireInstallPath, zipName } = require('./publish-paths.cjs');
+const policy = readPolicy();
 const argv = process.argv.slice(2).filter((a) => a !== '--');
 const flags = new Set(argv.filter((a) => a.startsWith('--')));
 const positional = argv.filter((a) => !a.startsWith('--'));
@@ -130,16 +138,17 @@ if (run(process.execPath, ['build.mjs'])) {
     console.error('build failed — nothing released');
     process.exit(1);
 }
-const zipPath = join(root, 'dist', 'pool', `${id}@${next}.zip`);
+const artifactName = zipName(id, next, policy);
+const zipPath = join(root, 'dist', 'pool', artifactName);
 if (!existsSync(zipPath)) {
     restoreDryRun();
-    console.error(`build did not produce dist/pool/${id}@${next}.zip`);
+    console.error(`build did not produce dist/pool/${artifactName}`);
     process.exit(1);
 }
 if (entryBumped) {
     // Prove the self-reported version actually made it into the bundle the host
     // will evaluate — a stale one is invisible in every other check.
-    const built = readFileSync(join(root, 'dist', id, 'index.js'), 'utf8');
+    const built = readFileSync(join(root, 'dist', requireInstallPath(id, policy), 'index.js'), 'utf8');
     if (!new RegExp(`PLUGIN_VERSION = ["']${next}["']`).test(built)) {
         restoreDryRun();
         console.error(`the built bundle does not report ${next} — the version constant did not survive the build`);
@@ -190,6 +199,7 @@ const head = runCapture('git', ['rev-parse', 'HEAD']).out;
 
 if (noPush) {
     console.log(`committed ${head.slice(0, 7)} — not pushed (--no-push)`);
+    console.log(`Install/update URL: ${installUrl(id, policy)}`);
     process.exit(0);
 }
 step('push');
@@ -201,17 +211,20 @@ if (run('git', ['push', 'origin', 'HEAD:master'])) {
 // ---- 6. Confirm the published host actually serves it ----------------------
 if (noLive) {
     console.log(`pushed ${head.slice(0, 7)} — skipping the live check (--no-live)`);
+    console.log(`Install/update URL: ${installUrl(id, policy)}`);
     process.exit(0);
 }
 step(`live check (up to ${liveWait}s)`);
 const live = run(process.execPath, ['scripts/verify-live.cjs', '--id', id, '--version', next, '--wait', String(liveWait)]);
 if (live === 0) {
     console.log(`\nReleased ${id} ${next}: pushed ${head.slice(0, 7)} and confirmed live.`);
+    console.log(`Install/update URL: ${installUrl(id, policy)}`);
     process.exit(0);
 }
 if (live === 2) {
     console.error(`\n${id} ${next} is pushed (${head.slice(0, 7)}) but the host has not caught up yet.`);
     console.error('Check the Actions run for master, then re-run: node scripts/verify-live.cjs --id ' + id + ' --version ' + next);
+    console.error(`Install/update URL: ${installUrl(id, policy)}`);
     process.exit(2);
 }
 console.error(`\n${id} ${next} is pushed but the published bundle does not match this build — investigate before telling anyone to update.`);

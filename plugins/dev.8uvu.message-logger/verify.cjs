@@ -5,7 +5,12 @@
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 
-const code = readFileSync(join(__dirname, '..', '..', 'dist', 'dev.8uvu.message-logger', 'index.js'), 'utf8');
+const { requireInstallPath } = require('../../scripts/publish-paths.cjs');
+
+// Resolved through the publishing policy rather than the id: the bundle lives at
+// the path build.mjs published it at, which is an opaque slug if this plugin is
+// ever unlisted.
+const code = readFileSync(join(__dirname, '..', '..', 'dist', requireInstallPath('dev.8uvu.message-logger'), 'index.js'), 'utf8');
 
 const LOG_FILE = '/docs/message-logger.json';
 const tick = () => new Promise((resolve) => setImmediate(resolve));
