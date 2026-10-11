@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.7.0";
+var PLUGIN_VERSION = "1.7.1";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -717,6 +717,40 @@ function getStore(name) {
   }
   return null;
 }
+function storeMessage(channelId, id) {
+  var _a, _b, _c;
+  if (!channelId || !id) return null;
+  try {
+    return (_c = (_b = (_a = getMessageStore()) == null ? void 0 : _a.getMessage) == null ? void 0 : _b.call(_a, channelId, id)) != null ? _c : null;
+  } catch {
+  }
+  return null;
+}
+function recordFromMessage(message) {
+  var _a, _b, _c, _d;
+  if (!message) return void 0;
+  const author = (_a = message.author) != null ? _a : {};
+  return {
+    content: typeof message.content === "string" ? message.content : "",
+    authorTag: (_d = (_c = (_b = author.globalName) != null ? _b : author.global_name) != null ? _c : author.username) != null ? _d : "Unknown",
+    bot: !!author.bot
+  };
+}
+var pendingMessages = /* @__PURE__ */ new Map();
+function rememberPendingMessage(id, message) {
+  if (!id || !(message == null ? void 0 : message.id)) return;
+  pendingMessages.set(id, message);
+  if (pendingMessages.size > 200) {
+    const oldest = pendingMessages.keys().next();
+    if (!oldest.done) pendingMessages.delete(oldest.value);
+  }
+}
+function takePendingMessage(id) {
+  const found = pendingMessages.get(id);
+  if (found === void 0) return null;
+  pendingMessages.delete(id);
+  return found;
+}
 function channelGuildIdFor(channelId) {
   var _a, _b, _c, _d;
   try {
@@ -1159,7 +1193,9 @@ function handleDelete(payload) {
     seen.delete(id);
     return;
   }
-  const snap = (_k = seen.get(id)) != null ? _k : snapshotOf((_j = payload == null ? void 0 : payload.message) != null ? _j : { id, channelId }, currentUserId());
+  const rescued = (_j = takePendingMessage(id)) != null ? _j : storeMessage(channelId, id);
+  const fallback = (rescued == null ? void 0 : rescued.id) ? rescued : payload == null ? void 0 : payload.message;
+  const snap = (_k = seen.get(id)) != null ? _k : snapshotOf((fallback == null ? void 0 : fallback.id) ? fallback : { id, channelId }, currentUserId());
   if (snap.attachments.length === 0 && Array.isArray((_l = payload == null ? void 0 : payload.message) == null ? void 0 : _l.embeds) && payload.message.embeds.length > 0) {
     snap.attachments = payload.message.embeds.map((e) => {
       var _a2, _b2, _c2, _d2, _e2, _f2;
@@ -1203,13 +1239,16 @@ function handleDeleteBulk(payload) {
   }
 }
 function handleUpdate(payload) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e, _f, _g, _h;
   if (!cfg.enabled || !cfg.logEdits) return;
   const message = payload == null ? void 0 : payload.message;
   if (!(message == null ? void 0 : message.id)) return;
   rememberForHighlight(payload);
+  if (typeof message.content !== "string") return;
   const id = String(message.id);
+  const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
   const prev = seen.get(id);
+  const prior = (_c = takePendingMessage(id)) != null ? _c : storeMessage(channelId, id);
   const snap = snapshotOf(message, currentUserId());
   if (!gateMessage(message, snap)) return;
   if (cfg.ignoreBots && snap.bot) return;
@@ -1220,18 +1259,23 @@ function handleUpdate(payload) {
   if (inList(snap.authorId, cfg.ignoredUsers)) return;
   seen.set(id, snap);
   const prevContent = prev && typeof prev.content === "string" ? prev.content : null;
-  const isRealEdit = prevContent !== null && prevContent !== snap.content;
-  const priorHistory = (_a = prev == null ? void 0 : prev.editHistory) != null ? _a : [];
-  if (isRealEdit && prevContent !== null) priorHistory.push(prevContent);
-  if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
-  if (!isRealEdit && !log[id]) return;
+  const known = prevContent !== null ? prevContent : typeof (prior == null ? void 0 : prior.content) === "string" ? prior.content : null;
+  const isRealEdit = known !== null && known !== snap.content;
   const existing = log[id];
+  const flagged = !!((_e = (_d = message.editedTimestamp) != null ? _d : message.edited_timestamp) != null ? _e : message.edited === true);
+  const unknownPriorEdit = known === null && flagged && !existing;
+  if (!isRealEdit && !unknownPriorEdit && !existing) return;
+  const priorHistory = (_f = prev == null ? void 0 : prev.editHistory) != null ? _f : [];
+  if (isRealEdit) priorHistory.push(String(known));
+  if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
+  const edits = [...(_g = existing == null ? void 0 : existing.edits) != null ? _g : [], ...isRealEdit ? [String(known)] : []].slice(-10);
   log[id] = {
     ...snap,
     status: "edited",
-    edits: [...(_b = existing == null ? void 0 : existing.edits) != null ? _b : [], ...isRealEdit && prevContent !== null ? [prevContent] : []].slice(-10),
+    edits,
     mentionsMe: snap.mentionsMe,
-    ghostPing: (_c = existing == null ? void 0 : existing.ghostPing) != null ? _c : false
+    ghostPing: (_h = existing == null ? void 0 : existing.ghostPing) != null ? _h : false,
+    priorUnknown: edits.length === 0 && known === null ? true : void 0
   };
   prune(cfg.maxStored);
   void persistLog();
@@ -1325,7 +1369,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
   const dispatch = typeof dispatcher.dispatch === "function" ? dispatcher.dispatch.bind(dispatcher) : null;
   try {
     const interceptor = (payload) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
       try {
         const type = payload == null ? void 0 : payload.type;
         if (type === "MESSAGE_DELETE" && cfg.logDeletes) {
@@ -1337,9 +1381,11 @@ function installDeleteRewrite(dispatcher, addCleanup) {
             if (!cfg.keepSelfDeletes) return void 0;
           }
           if (inList(channelId, cfg.ignoredChannels)) return;
-          const record = cachedRecordFor(id);
+          const stored = storeMessage(channelId, id);
+          rememberPendingMessage(id, stored);
+          const record = (_k = cachedRecordFor(id)) != null ? _k : recordFromMessage(stored);
           if (cfg.ignoreBots && (record == null ? void 0 : record.bot)) return;
-          const authorId = (_m = (_k = seen.get(id)) == null ? void 0 : _k.authorId) != null ? _m : (_l = log[id]) == null ? void 0 : _l.authorId;
+          const authorId = (_n = (_l = seen.get(id)) == null ? void 0 : _l.authorId) != null ? _n : (_m = log[id]) == null ? void 0 : _m.authorId;
           if (cfg.ignoreSelf && authorId && authorId === currentUserId()) return;
           if (inList(authorId, cfg.ignoredUsers)) return;
           handleDelete(payload);
@@ -1348,7 +1394,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
         }
         if (type === "MESSAGE_DELETE_BULK" && cfg.logDeletes) {
           const ids = Array.isArray(payload == null ? void 0 : payload.ids) ? payload.ids.map(String) : [];
-          const channelId = String((_o = (_n = payload == null ? void 0 : payload.channelId) != null ? _n : payload == null ? void 0 : payload.channel_id) != null ? _o : "");
+          const channelId = String((_p = (_o = payload == null ? void 0 : payload.channelId) != null ? _o : payload == null ? void 0 : payload.channel_id) != null ? _p : "");
           if (!ids.length || !channelId) return;
           const kept = ids.filter((id) => {
             var _a2;
@@ -1359,6 +1405,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
           });
           if (!kept.length) return;
           for (const id of kept) {
+            rememberPendingMessage(id, storeMessage(channelId, id));
             markHighlightDeleted(id, channelId);
             handleDeleteBulk({ ids: [id], channelId });
           }
@@ -1376,9 +1423,16 @@ function installDeleteRewrite(dispatcher, addCleanup) {
           return;
         }
         if (type === "MESSAGE_UPDATE") {
-          const id = String((_q = (_p = payload == null ? void 0 : payload.message) == null ? void 0 : _p.id) != null ? _q : "");
-          const channelId = String((_u = (_t = (_r = payload == null ? void 0 : payload.message) == null ? void 0 : _r.channelId) != null ? _t : (_s = payload == null ? void 0 : payload.message) == null ? void 0 : _s.channel_id) != null ? _u : "");
+          const raw = payload == null ? void 0 : payload.message;
+          const id = String((_q = raw == null ? void 0 : raw.id) != null ? _q : "");
+          const channelId = String((_s = (_r = raw == null ? void 0 : raw.channelId) != null ? _r : raw == null ? void 0 : raw.channel_id) != null ? _s : "");
           if (id && channelId && cfg.logEdits && !inList(channelId, cfg.ignoredChannels)) {
+            if (typeof (raw == null ? void 0 : raw.content) === "string") {
+              const stored = storeMessage(channelId, id);
+              if (stored && typeof stored.content === "string" && stored.content !== raw.content) {
+                rememberPendingMessage(id, stored);
+              }
+            }
             markHighlightEdited(id, channelId);
           }
           return;
@@ -1452,9 +1506,12 @@ function paintRow(row, processColor) {
         var _a2;
         return changeLine(String(h), String((_a2 = versions[i + 1]) != null ? _a2 : current)) + " (edited)";
       }).join("\n");
-      if (block && !msg.content.includes(block)) {
-        msg.content = block + "\n" + msg.content;
-      }
+      const lines = msg.content.split("\n");
+      let start = 0;
+      while (start < history.length && start < lines.length - 1 && / \(edited\)$/.test(lines[start])) start++;
+      const body = lines.slice(start).join("\n");
+      const painted = body ? block + "\n" + body : block;
+      if (block && painted !== msg.content) msg.content = painted;
     }
   }
 }
@@ -2257,6 +2314,7 @@ function makeSettingsComponent() {
               }
             ).filter(Boolean) : [],
             m.edits.length > 0 && !cfg.showEditDiffs && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
+            m.status === "edited" && m.edits.length === 0 ? el(Text, { style: { color: C.sub, fontSize: 12 } }, "Edited \u2014 previous version not recorded") : null,
             el(
               Pressable,
               { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
@@ -2440,16 +2498,18 @@ function getMessageIdsInChannel(channelId) {
   return ids;
 }
 function getMessageStore() {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b;
   try {
-    const s = typeof revenge !== "undefined" && ((_c = (_b = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores) == null ? void 0 : _c.MessageStore) || null;
-    if (s) return s;
+    const s = getStore("MessageStore");
+    if (s == null ? void 0 : s.getMessage) return s;
   } catch {
   }
   try {
     const metro = getMetro();
-    const s = (_f = (_d = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _d.call(metro, "MessageStore")) != null ? _f : (_e = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _e.call(metro, "getMessage", "getMessages");
-    if (s) return s;
+    const byName = (_a = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _a.call(metro, "MessageStore");
+    if (byName == null ? void 0 : byName.getMessage) return byName;
+    const byProps = (_b = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _b.call(metro, "getMessage", "getMessages");
+    if (byProps == null ? void 0 : byProps.getMessage) return byProps;
   } catch {
   }
   return null;

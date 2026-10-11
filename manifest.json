@@ -1,23 +1,23 @@
 {
     "format": 1,
-    "id": "dev.8uvu.clean-urls",
-    "name": "Clean URLs",
-    "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
-    "author": "8uvu",
+    "id": "dev.8uvu.message-logger",
+    "name": "MessageLogger",
+    "description": "Message logger with searchable deleted/edited history, edit diffs, ghost pings, muted-channel filters, image caching and import/export",
+    "author": "8uvu aka Epitaph",
     "main": "index.js",
     "display": {
-        "name": "Clean URLs",
-        "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
+        "name": "MessageLogger",
+        "description": "Message logger with searchable deleted/edited history, edit diffs, ghost pings, muted-channel filters, image caching and import/export",
         "authors": [
             {
-                "name": "8uvu"
+                "name": "8uvu aka Epitaph"
             }
         ]
     },
-    "version": "1.0.3",
+    "version": "1.7.1",
     "dependencies": {
         "revenge.api": {
-            "version": "*"
+            "version": ">=1"
         },
         "discord": {
             "version": "*"
@@ -26,10 +26,10 @@
     "dist": {
         "script": "index.js"
     },
-    "hash": "3acc8b0c0bcf7c4aa61a9394db019ec8729d471035bc0e0158806063e69150ab",
+    "hash": "bab11f33ec5ed2e30749022bf01f0cbaf4279dac7fc732fa291bed9fb05c1f1b",
     "authors": [
         {
-            "name": "8uvu"
+            "name": "8uvu aka Epitaph"
         }
     ],
     "vendetta": {

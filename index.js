@@ -16,70 +16,112 @@ var __copyProps = (to, from, except, desc) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// plugins/dev.8uvu.clean-urls/js/index.ts
+// plugins/dev.8uvu.message-logger/js/index.tsx
 var index_exports = {};
 __export(index_exports, {
   default: () => index_default
 });
 module.exports = __toCommonJS(index_exports);
+var hostKind = "next";
+var startedAt = null;
+var lastStartError = null;
+var handlersRegistered = 0;
+var PLUGIN_VERSION = "1.7.1";
+var deletedMessageMap = /* @__PURE__ */ new Map();
+var editedMessageMap = /* @__PURE__ */ new Map();
+var manualDeletes = /* @__PURE__ */ new Set();
+var HIGHLIGHT_MAX = 500;
+var LOG_FILE = "message-logger.json";
 var DEFAULT_SETTINGS = {
   enabled: true,
-  mode: "blacklist",
-  customBlacklist: "",
-  customWhitelist: ""
+  logDeletes: true,
+  logEdits: true,
+  restoreDeletedInChat: true,
+  keepSelfDeletes: true,
+  deletedInfo: true,
+  inlineEdits: true,
+  deleteStyle: "text",
+  showEditDiffs: false,
+  separatedDiffs: false,
+  logDeletedAttachments: true,
+  ghostPings: true,
+  colorHighlights: true,
+  ignoreBots: true,
+  ignoreWebhooks: false,
+  ignoreSelf: false,
+  ignoreSelfEdits: false,
+  alwaysLogDirectMessages: true,
+  alwaysLogCurrentChannel: true,
+  ignoreMutedGuilds: false,
+  ignoreMutedCategories: false,
+  ignoreMutedChannels: false,
+  saveImages: true,
+  imageQuotaGB: 2,
+  attachmentSizeLimitMB: 100,
+  attachmentExtensions: "png,jpg,jpeg,gif,webp",
+  timeBasedCleanupMinutes: 0,
+  maxStored: 300,
+  sortNewest: true,
+  logsPerPage: 100,
+  ignoredChannels: "",
+  ignoredUsers: "",
+  ignoredGuilds: "",
+  whitelistedIds: ""
 };
-var TRACKING_PARAMS = /* @__PURE__ */ new Set([
-  "fbclid",
-  "gclid",
-  "gclsrc",
-  "dclid",
-  "gbraid",
-  "wbraid",
-  "msclkid",
-  "twclid",
-  "ttclid",
-  "yclid",
-  "igshid",
-  "igsh",
-  "si",
-  "mkt_tok",
-  "mc_eid",
-  "mc_cid",
-  "_hsenc",
-  "_hsmi",
-  "vero_conv",
-  "vero_id",
-  "ref_src",
-  "ref_url",
-  "spm",
-  "scm",
-  "share_source",
-  "share_medium",
-  "tt_from",
-  "s_kwcid",
-  "elqtrackid",
-  "trk_contact",
-  "trk_msg",
-  "trk_module",
-  "trk_sid",
-  "rb_clickid",
-  "oly_anon_id",
-  "oly_enc_id",
-  "wickedid",
-  "hsa_cam",
-  "hsa_grp",
-  "hsa_ad",
-  "hsa_src",
-  "hsa_tgt",
-  "hsa_kw",
-  "hsa_mt",
-  "hsa_net",
-  "hsa_ver",
-  "ml_subscriber",
-  "ml_subscriber_hash",
-  "trk"
-]);
-var TRACKING_PREFIXES = ["utm_", "fb_", "ga_", "mc_", "matomo_", "pk_", "mtm_"];
+function getReact() {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  try {
+    if (typeof revenge !== "undefined") {
+      const r = revenge.react;
+      if (r) return r.React || r;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React) || ((_e = (_d = b.api) == null ? void 0 : _d.react) == null ? void 0 : _e.React);
+      if (r) return r;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const r = ((_f = v.common) == null ? void 0 : _f.React) || ((_h = (_g = v.metro) == null ? void 0 : _g.common) == null ? void 0 : _h.React) || v.React;
+      if (r) return r;
+    }
+  } catch {
+  }
+  return null;
+}
+function getRN() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  try {
+    if (typeof revenge !== "undefined") {
+      const rn = (_a = revenge.react) == null ? void 0 : _a.ReactNative;
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.ReactNative) || ((_f = (_e = b.api) == null ? void 0 : _e.react) == null ? void 0 : _f.ReactNative);
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const rn = ((_g = v.common) == null ? void 0 : _g.ReactNative) || ((_i = (_h = v.metro) == null ? void 0 : _h.common) == null ? void 0 : _i.ReactNative);
+      if (rn) return rn;
+    }
+  } catch {
+  }
+  return null;
+}
 function getFlux() {
   var _a, _b, _c, _d, _e, _f;
   try {
@@ -105,7 +147,8 @@ function getFlux() {
   }
   try {
     if (typeof vendetta !== "undefined") {
-      const fd = (_f = (_c = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _c.FluxDispatcher) != null ? _f : (_e = (_d = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _d.common) == null ? void 0 : _e.FluxDispatcher;
+      const v = vendetta;
+      const fd = (_f = (_c = v == null ? void 0 : v.common) == null ? void 0 : _c.FluxDispatcher) != null ? _f : (_e = (_d = v == null ? void 0 : v.metro) == null ? void 0 : _d.common) == null ? void 0 : _e.FluxDispatcher;
       if (fd && typeof fd.addInterceptor === "function") {
         return {
           onFluxEventDispatched: (type, patch) => fd.addInterceptor((payload) => {
@@ -119,134 +162,1550 @@ function getFlux() {
   }
   return null;
 }
+function getRawFluxDispatcher() {
+  var _a, _b, _c, _d, _e, _f, _g;
+  try {
+    if (typeof revenge !== "undefined") {
+      const f = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux;
+      if (f && typeof f.onAnyFluxEventDispatched === "function") {
+        return { addInterceptor: (cb) => f.onAnyFluxEventDispatched(cb) };
+      }
+      if ((f == null ? void 0 : f.dispatcher) && typeof f.dispatcher.addInterceptor === "function") {
+        return f.dispatcher;
+      }
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    if (((_b = b == null ? void 0 : b.api) == null ? void 0 : _b.flux) && typeof b.api.flux.intercept === "function") {
+      return { addInterceptor: (cb) => b.api.flux.intercept(cb) };
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const fdB = (_d = (_c = b == null ? void 0 : b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.FluxDispatcher;
+    if (fdB && typeof fdB.addInterceptor === "function") return fdB;
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const fdV = ((_f = (_e = v == null ? void 0 : v.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.FluxDispatcher) || ((_g = v == null ? void 0 : v.common) == null ? void 0 : _g.FluxDispatcher);
+    if (fdV && typeof fdV.addInterceptor === "function") return fdV;
+  } catch {
+  }
+  return null;
+}
+function getMetro() {
+  try {
+    const n = typeof revenge !== "undefined" && (revenge == null ? void 0 : revenge.metro) || null;
+    if (n) return n;
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    if (b == null ? void 0 : b.metro) return b.metro;
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    if (v == null ? void 0 : v.metro) return v.metro;
+  } catch {
+  }
+  return null;
+}
+function getActions() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  try {
+    if (typeof revenge !== "undefined") {
+      const a = (_a = revenge.discord) == null ? void 0 : _a.actions;
+      if (a) return a;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      const a = ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.toasts) || ((_e = (_d = b.api) == null ? void 0 : _d.actions) == null ? void 0 : _e.ToastActionCreators);
+      if (a) return a;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const show = (_k = (_g = (_f = v == null ? void 0 : v.ui) == null ? void 0 : _f.toasts) == null ? void 0 : _g.showToast) != null ? _k : (_j = (_i = (_h = v == null ? void 0 : v.metro) == null ? void 0 : _h.common) == null ? void 0 : _i.toasts) == null ? void 0 : _j.open;
+      if (typeof show === "function") {
+        return { ToastActionCreators: { open: (t) => {
+          var _a2;
+          return show(String((_a2 = t == null ? void 0 : t.content) != null ? _a2 : ""));
+        } } };
+      }
+    }
+  } catch {
+  }
+  return null;
+}
+function getFileModule() {
+  var _a, _b, _c, _d, _e;
+  try {
+    if (typeof revenge !== "undefined") {
+      const fm = (_b = (_a = revenge.discord) == null ? void 0 : _a.native) == null ? void 0 : _b.FileModule;
+      if (fm) return fm;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const b = bunny;
+      return ((_d = (_c = b.api) == null ? void 0 : _c.native) == null ? void 0 : _d.FileModule) || ((_e = b.native) == null ? void 0 : _e.FileModule) || null;
+    }
+  } catch {
+  }
+  return null;
+}
+function getDesign() {
+  var _a;
+  try {
+    const d = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.design;
+    const design = d && (d.Design || d);
+    if (design) return design;
+  } catch {
+  }
+  try {
+    const ui = bunny == null ? void 0 : bunny.ui;
+    if (ui) return ui.FormTableRowGroup ? ui : ui.components || ui;
+  } catch {
+  }
+  return null;
+}
+function getClipboard() {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  try {
+    if (typeof revenge !== "undefined") {
+      const c = (_b = (_a = revenge == null ? void 0 : revenge.externals) == null ? void 0 : _a.ReactNativeClipboard) == null ? void 0 : _b.Clipboard;
+      if (c) return c;
+    }
+  } catch {
+  }
+  try {
+    if (typeof bunny !== "undefined") {
+      const c = (_d = (_c = bunny == null ? void 0 : bunny.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.clipboard;
+      if (c) return c;
+    }
+  } catch {
+  }
+  try {
+    if (typeof vendetta !== "undefined") {
+      const v = vendetta;
+      const c = (_h = (_f = (_e = v == null ? void 0 : v.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.clipboard) != null ? _h : (_g = v == null ? void 0 : v.common) == null ? void 0 : _g.clipboard;
+      if (c) return c;
+    }
+  } catch {
+  }
+  return null;
+}
+var log = {};
+var docRoot = "";
+var flushTimer = null;
+var apiRef = null;
 var cfg = { ...DEFAULT_SETTINGS };
 var cfgStorage = null;
-var hostKind = "next";
-function coerce(raw) {
+function logPath() {
+  return (docRoot.length ? docRoot.replace(/\/+$/, "") + "/" : "") + LOG_FILE;
+}
+function coerceSettings(raw) {
   const c = raw && typeof raw === "object" ? raw : {};
   return {
     enabled: c.enabled !== false,
-    mode: c.mode === "whitelist" ? "whitelist" : "blacklist",
-    customBlacklist: typeof c.customBlacklist === "string" ? c.customBlacklist : "",
-    customWhitelist: typeof c.customWhitelist === "string" ? c.customWhitelist : ""
+    logDeletes: c.logDeletes !== false,
+    logEdits: c.logEdits !== false,
+    restoreDeletedInChat: c.restoreDeletedInChat !== false,
+    keepSelfDeletes: c.keepSelfDeletes !== false,
+    deletedInfo: c.deletedInfo !== false,
+    ghostPings: c.ghostPings !== false,
+    colorHighlights: c.colorHighlights !== false,
+    inlineEdits: c.inlineEdits !== false,
+    deleteStyle: c.deleteStyle === "overlay" ? "overlay" : "text",
+    showEditDiffs: !!c.showEditDiffs,
+    separatedDiffs: !!c.separatedDiffs,
+    logDeletedAttachments: c.logDeletedAttachments !== false,
+    saveImages: c.saveImages !== false,
+    imageQuotaGB: typeof c.imageQuotaGB === "number" && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100 ? c.imageQuotaGB : DEFAULT_SETTINGS.imageQuotaGB,
+    attachmentSizeLimitMB: typeof c.attachmentSizeLimitMB === "number" && c.attachmentSizeLimitMB >= 1 && c.attachmentSizeLimitMB <= 1024 ? c.attachmentSizeLimitMB : DEFAULT_SETTINGS.attachmentSizeLimitMB,
+    attachmentExtensions: typeof c.attachmentExtensions === "string" ? c.attachmentExtensions : DEFAULT_SETTINGS.attachmentExtensions,
+    timeBasedCleanupMinutes: typeof c.timeBasedCleanupMinutes === "number" && c.timeBasedCleanupMinutes >= 0 && c.timeBasedCleanupMinutes <= 525600 ? Math.floor(c.timeBasedCleanupMinutes) : 0,
+    ignoreBots: c.ignoreBots !== false,
+    ignoreWebhooks: !!c.ignoreWebhooks,
+    ignoreSelf: !!c.ignoreSelf,
+    ignoreSelfEdits: !!c.ignoreSelfEdits,
+    alwaysLogDirectMessages: c.alwaysLogDirectMessages !== false,
+    alwaysLogCurrentChannel: c.alwaysLogCurrentChannel !== false,
+    ignoreMutedGuilds: !!c.ignoreMutedGuilds,
+    ignoreMutedCategories: !!c.ignoreMutedCategories,
+    ignoreMutedChannels: !!c.ignoreMutedChannels,
+    sortNewest: c.sortNewest !== false,
+    logsPerPage: typeof c.logsPerPage === "number" && c.logsPerPage >= 10 && c.logsPerPage <= 1e3 ? Math.floor(c.logsPerPage) : DEFAULT_SETTINGS.logsPerPage,
+    maxStored: typeof c.maxStored === "number" && c.maxStored >= 10 && c.maxStored <= 1e4 ? Math.floor(c.maxStored) : DEFAULT_SETTINGS.maxStored,
+    ignoredChannels: typeof c.ignoredChannels === "string" ? c.ignoredChannels : "",
+    ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : "",
+    ignoredGuilds: typeof c.ignoredGuilds === "string" ? c.ignoredGuilds : "",
+    whitelistedIds: typeof c.whitelistedIds === "string" ? c.whitelistedIds : ""
   };
 }
-function refreshConfig() {
+function refreshConfigFromStorage() {
   try {
-    if ((cfgStorage == null ? void 0 : cfgStorage.cache) && typeof cfgStorage.cache === "object") cfg = coerce(cfgStorage.cache);
+    if (cfgStorage && cfgStorage.cache && typeof cfgStorage.cache === "object") {
+      cfg = coerceSettings(cfgStorage.cache);
+    }
   } catch {
   }
 }
-function splitList(raw) {
-  return new Set(
-    raw.split(/[\s,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean)
-  );
-}
-function isTracked(key, custom) {
-  return TRACKING_PARAMS.has(key) || TRACKING_PREFIXES.some((p) => key.startsWith(p)) || custom.has(key);
-}
-function cleanUrl(url) {
-  const schemeEnd = url.indexOf("://");
-  const hostStart = schemeEnd === -1 ? url.startsWith("//") ? 2 : 0 : schemeEnd + 3;
-  const afterHost = url.indexOf("/", hostStart);
-  const authority = afterHost === -1 ? url : url.slice(0, afterHost);
-  const rest = afterHost === -1 ? "" : url.slice(afterHost);
-  const queryStart = rest.indexOf("?");
-  if (queryStart === -1) return url;
-  const hashStart = rest.indexOf("#");
-  const path = rest.slice(0, queryStart);
-  const queryEnd = hashStart === -1 ? rest.length : hashStart;
-  const query = rest.slice(queryStart + 1, queryEnd);
-  const hashPart = hashStart === -1 ? "" : rest.slice(hashStart);
-  const keep = [];
-  const custom = splitList(cfg.mode === "whitelist" ? cfg.customWhitelist : cfg.customBlacklist);
-  for (const pair of query.split("&")) {
-    if (!pair) continue;
-    const eq = pair.indexOf("=");
-    const rawKey = eq === -1 ? pair : pair.slice(0, eq);
-    let key = rawKey;
-    try {
-      key = decodeURIComponent(rawKey);
-    } catch {
-    }
-    key = key.toLowerCase();
-    if (cfg.mode === "whitelist") {
-      if (custom.size === 0 || custom.has(key)) keep.push(pair);
-    } else if (!isTracked(key, custom)) {
-      keep.push(pair);
-    }
+function hostLog(msg) {
+  var _a, _b;
+  try {
+    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.log) == null ? void 0 : _b.call(_a, "[MessageLogger] " + msg);
+  } catch {
   }
-  const cleaned = path + (keep.length ? "?" + keep.join("&") : "") + hashPart;
-  return authority + cleaned;
 }
-var URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
-function cleanText(text) {
-  if (!text || typeof text !== "string" || !text.includes("?")) return text;
-  return text.replace(URL_RE, (m) => {
-    const trimmed = m.match(/[.,;:!?]+$/);
-    const body = trimmed ? m.slice(0, m.length - trimmed[0].length) : m;
-    return cleanUrl(body) + (trimmed ? trimmed[0] : "");
+function hostError(msg, e) {
+  var _a, _b;
+  lastStartError = msg + (e ? " \u2014 " + (e instanceof Error ? e.message : String(e)) : "");
+  try {
+    (_b = (_a = apiRef == null ? void 0 : apiRef.logger) == null ? void 0 : _a.error) == null ? void 0 : _b.call(
+      _a,
+      "[MessageLogger] " + msg,
+      e instanceof Error ? e.message : e
+    );
+  } catch {
+  }
+}
+var storageProxy = null;
+var storageKind = null;
+var classicDisposers = [];
+function hostData() {
+  try {
+    if (!storageProxy) return null;
+    if (storageKind === "bunny") {
+      return storageProxy.data && typeof storageProxy.data === "object" ? storageProxy.data : {};
+    }
+    if (storageKind === "vendetta") {
+      return { settings: storageProxy.settings, log: storageProxy.log };
+    }
+  } catch {
+  }
+  return null;
+}
+function refreshClassicConfig() {
+  try {
+    const data = hostData();
+    if ((data == null ? void 0 : data.settings) && typeof data.settings === "object") cfg = coerceSettings(data.settings);
+  } catch {
+  }
+}
+async function loadLog() {
+  var _a;
+  if (hostKind !== "next") {
+    try {
+      const data = hostData();
+      if ((data == null ? void 0 : data.settings) && typeof data.settings === "object") {
+        cfg = coerceSettings(data.settings);
+      }
+      if ((data == null ? void 0 : data.log) && typeof data.log === "object") log = data.log;
+      hostLog("loaded " + Object.keys(log).length + " entries (plugin storage)");
+      restoreHighlightsFromLog();
+    } catch (e) {
+      hostError("failed to read plugin storage", e);
+    }
+    return;
+  }
+  const fm = getFileModule();
+  if (!fm) {
+    hostError("FileModule unavailable \u2014 log cannot be loaded or saved");
+    return;
+  }
+  try {
+    docRoot = String((_a = fm.getConstants().DocumentsDirPath) != null ? _a : "");
+  } catch {
+    docRoot = "";
+  }
+  try {
+    const raw = await fm.readFile(logPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") log = parsed;
+    hostLog("loaded " + Object.keys(log).length + " entries");
+    restoreHighlightsFromLog();
+  } catch {
+    log = {};
+    hostLog("starting with an empty log");
+  }
+}
+async function persistLog() {
+  if (hostKind !== "next") {
+    try {
+      if (storageProxy && typeof storageProxy === "object") {
+        if (storageKind === "bunny") {
+          const data = storageProxy.data && typeof storageProxy.data === "object" ? storageProxy.data : {};
+          storageProxy.data = { ...data, log };
+        } else {
+          storageProxy.log = { ...log };
+        }
+      }
+    } catch (e) {
+      hostError("failed to write plugin storage", e);
+    }
+    return;
+  }
+  const fm = getFileModule();
+  if (!fm) return;
+  try {
+    await fm.writeFile("documents", LOG_FILE, JSON.stringify(log), "utf8");
+  } catch (e) {
+    hostError("failed to write log file", e);
+  }
+}
+function prune(max) {
+  const ids = Object.keys(log);
+  if (ids.length <= max) return;
+  ids.map((id) => log[id]).sort((a, b) => a.timestamp - b.timestamp).slice(0, ids.length - max).forEach((m) => {
+    delete log[m.id];
   });
 }
-function handlePayload(payload) {
-  if (!cfg.enabled) return payload;
-  const message = payload == null ? void 0 : payload.message;
-  if (!message || typeof message.content !== "string") return payload;
-  const cleaned = cleanText(message.content);
-  if (cleaned !== message.content) message.content = cleaned;
-  return payload;
+function inList(id, raw) {
+  if (!raw) return false;
+  return raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).includes(String(id));
 }
-function settingsInk() {
-  var _a, _b, _c, _d, _e;
-  let dark = true;
+function getUserStore() {
+  var _a, _b, _c, _d, _e, _f, _g;
   try {
-    const tm = (_c = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.metro) == null ? void 0 : _b.findByProps) == null ? void 0 : _c.call(_b, "theme", "setTheme");
-    const t = (_e = (_d = tm == null ? void 0 : tm.theme) != null ? _d : tm == null ? void 0 : tm.resolvedTheme) != null ? _e : tm == null ? void 0 : tm.currentTheme;
-    if (t) dark = String(t).toLowerCase().includes("dark");
+    if (typeof revenge !== "undefined") {
+      const s = (_b = (_a = revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores;
+      if (s == null ? void 0 : s.UserStore) return s.UserStore;
+    }
   } catch {
   }
-  return dark ? { text: "#ffffff", sub: "#9ba0a8", input: "#232428" } : { text: "#060607", sub: "#5c5e66", input: "#ebedef" };
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const metro = b == null ? void 0 : b.metro;
+    for (const c of [(_c = b == null ? void 0 : b.common) == null ? void 0 : _c.UserStore, (_f = (_e = (_d = b == null ? void 0 : b.api) == null ? void 0 : _d.flux) == null ? void 0 : _e.stores) == null ? void 0 : _f.UserStore, (_g = metro == null ? void 0 : metro.common) == null ? void 0 : _g.UserStore]) {
+      if (c) return c;
+    }
+    if (metro == null ? void 0 : metro.findByStoreName) {
+      const m = metro.findByStoreName("UserStore");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+    if (metro == null ? void 0 : metro.findByProps) {
+      const m = metro.findByProps("getCurrentUser");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+    if (metro == null ? void 0 : metro.find) {
+      const m = metro.find((x) => x && typeof x.getCurrentUser === "function");
+      if (m) return m;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const metro = v == null ? void 0 : v.metro;
+    if (metro == null ? void 0 : metro.findByStoreName) {
+      const m = metro.findByStoreName("UserStore");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+    if (metro == null ? void 0 : metro.findByProps) {
+      const m = metro.findByProps("getCurrentUser");
+      if (m == null ? void 0 : m.getCurrentUser) return m;
+    }
+  } catch {
+  }
+  return null;
 }
-function resolveDesign(api) {
+function currentUserId() {
+  var _a, _b, _c;
+  try {
+    return String((_c = (_b = (_a = getUserStore()) == null ? void 0 : _a.getCurrentUser) == null ? void 0 : _b.call(_a).id) != null ? _c : "");
+  } catch {
+    return "";
+  }
+}
+function mentionsOf(message) {
+  const out = [];
+  const raw = message == null ? void 0 : message.mentions;
+  if (Array.isArray(raw)) {
+    for (const m of raw) {
+      if (typeof m === "string") out.push(m);
+      else if (m && typeof m.id !== "undefined") out.push(String(m.id));
+    }
+  }
+  return out;
+}
+function snapshotOf(message, me) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  const author = (_a = message == null ? void 0 : message.author) != null ? _a : {};
+  return {
+    id: String((_b = message == null ? void 0 : message.id) != null ? _b : ""),
+    channelId: String((_d = (_c = message == null ? void 0 : message.channelId) != null ? _c : message == null ? void 0 : message.channel_id) != null ? _d : ""),
+    guildId: String((_j = (_i = (_e = message == null ? void 0 : message.guildId) != null ? _e : message == null ? void 0 : message.guild_id) != null ? _i : (_h = (_g = (_f = message == null ? void 0 : message.messageSnapshots) == null ? void 0 : _f[0]) == null ? void 0 : _g.message) == null ? void 0 : _h.guildId) != null ? _j : ""),
+    webhook: !!(author == null ? void 0 : author.webhook) || (message == null ? void 0 : message.webhookId) != null,
+    authorId: String((_k = author.id) != null ? _k : ""),
+    authorTag: author.globalName || author.username || "Unknown",
+    bot: !!author.bot,
+    content: String((_l = message == null ? void 0 : message.content) != null ? _l : ""),
+    editHistory: [],
+    attachments: Array.isArray(message == null ? void 0 : message.attachments) ? message.attachments.map((a) => {
+      var _a2, _b2;
+      return String((_b2 = (_a2 = a == null ? void 0 : a.url) != null ? _a2 : a == null ? void 0 : a.proxy_url) != null ? _b2 : "");
+    }).filter(Boolean).slice(0, 10) : [],
+    timestamp: Date.parse(message == null ? void 0 : message.timestamp) || Date.now(),
+    mentionsMe: me !== "" && mentionsOf(message).includes(me)
+  };
+}
+var seen = /* @__PURE__ */ new Map();
+var skippedIds = /* @__PURE__ */ new Set();
+function rememberSkipped(id) {
+  if (!id) return;
+  skippedIds.add(id);
+  if (skippedIds.size > 500) {
+    const first = skippedIds.values().next();
+    if (!first.done) skippedIds.delete(first.value);
+  }
+}
+function takeSkipped(id) {
+  if (!skippedIds.has(id)) return false;
+  skippedIds.delete(id);
+  return true;
+}
+function gateMessage(_message, snap) {
+  var _a, _b, _c;
+  const userId = String((_a = snap == null ? void 0 : snap.authorId) != null ? _a : "");
+  const channelId = String((_b = snap == null ? void 0 : snap.channelId) != null ? _b : "");
+  const guildId = String((_c = snap == null ? void 0 : snap.guildId) != null ? _c : "") || channelGuildIdFor(channelId);
+  if (inList(userId, cfg.ignoredUsers) || inList(channelId, cfg.ignoredChannels) || inList(guildId, cfg.ignoredGuilds))
+    return false;
+  if (inList(userId, cfg.whitelistedIds) || inList(channelId, cfg.whitelistedIds) || inList(guildId, cfg.whitelistedIds))
+    return true;
+  if (cfg.alwaysLogDirectMessages && channelId && isDmChannel(channelId)) return true;
+  if (cfg.alwaysLogCurrentChannel && channelId && channelId === currentChannelId()) return true;
+  if (cfg.ignoreMutedChannels && isChannelMuted(channelId)) return false;
+  if (cfg.ignoreMutedCategories && isCategoryMuted(channelId)) return false;
+  if (cfg.ignoreMutedGuilds && isGuildMuted(guildId)) return false;
+  return true;
+}
+function toast(content, key) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+  try {
+    const actions = getActions();
+    const open = (_b = (_a = actions == null ? void 0 : actions.ToastActionCreators) == null ? void 0 : _a.open) != null ? _b : actions == null ? void 0 : actions.open;
+    if (typeof open === "function") {
+      open({ key, content });
+      return;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const show = (_k = (_h = (_d = (_c = v == null ? void 0 : v.ui) == null ? void 0 : _c.toasts) == null ? void 0 : _d.showToast) != null ? _h : (_g = (_f = (_e = v == null ? void 0 : v.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.toasts) == null ? void 0 : _g.open) != null ? _k : (_j = (_i = v == null ? void 0 : v.common) == null ? void 0 : _i.toasts) == null ? void 0 : _j.showToast;
+    if (typeof show === "function") {
+      try {
+        show({ key, content });
+        return;
+      } catch {
+      }
+      try {
+        show(content);
+        return;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const show = (_m = (_l = b == null ? void 0 : b.ui) == null ? void 0 : _l.toasts) == null ? void 0 : _m.showToast;
+    if (typeof show === "function") {
+      show(content);
+      return;
+    }
+  } catch {
+  }
+  try {
+    const ta = (_n = getRN()) == null ? void 0 : _n.ToastAndroid;
+    (_p = ta == null ? void 0 : ta.show) == null ? void 0 : _p.call(ta, content, (_o = ta == null ? void 0 : ta.SHORT) != null ? _o : 0);
+  } catch {
+  }
+}
+function alertBox(title, msg) {
+  var _a, _b, _c;
+  try {
+    const Alert = (_a = getRN()) == null ? void 0 : _a.Alert;
+    if (Alert == null ? void 0 : Alert.alert) {
+      Alert.alert(title, msg);
+      return;
+    }
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const alertApi = (_c = (_b = v == null ? void 0 : v.ui) == null ? void 0 : _b.alerts) == null ? void 0 : _c.showConfirmationAlert;
+    if (typeof alertApi === "function") {
+      alertApi({ title, content: msg, confirmText: "OK", cancelText: "Close", onConfirm: () => {
+      }, onCancel: () => {
+      } });
+    }
+  } catch {
+  }
+}
+function getChannelStore() {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i;
-  const candidates = [api == null ? void 0 : api.design, (_a = api == null ? void 0 : api.discord) == null ? void 0 : _a.design, (_c = (_b = api == null ? void 0 : api.unscoped) == null ? void 0 : _b.discord) == null ? void 0 : _c.design, (_d = api == null ? void 0 : api.unscoped) == null ? void 0 : _d.design];
-  for (const candidate of candidates) {
+  const found = getStore("ChannelStore");
+  if (found == null ? void 0 : found.getChannel) return found;
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const metro = b == null ? void 0 : b.metro;
+    for (const c of [(_a = b == null ? void 0 : b.common) == null ? void 0 : _a.ChannelStore, (_b = metro == null ? void 0 : metro.common) == null ? void 0 : _b.ChannelStore]) {
+      if (c == null ? void 0 : c.getChannel) return c;
+    }
+    const m = (_c = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _c.call(metro, "getChannel");
+    if (m == null ? void 0 : m.getChannel) return m;
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const m = (_i = (_e = (_d = v == null ? void 0 : v.metro) == null ? void 0 : _d.findByProps) == null ? void 0 : _e.call(_d, "getChannel")) != null ? _i : (_h = (_g = (_f = v == null ? void 0 : v.common) == null ? void 0 : _f.metro) == null ? void 0 : _g.findByProps) == null ? void 0 : _h.call(_g, "getChannel");
+    if (m == null ? void 0 : m.getChannel) return m;
+  } catch {
+  }
+  return null;
+}
+function toastGhostPing(entry) {
+  var _a, _b;
+  let where = "a channel";
+  try {
+    const ch = (_b = (_a = getChannelStore()) == null ? void 0 : _a.getChannel) == null ? void 0 : _b.call(_a, entry.channelId);
+    if (ch == null ? void 0 : ch.name) where = "#" + ch.name;
+  } catch {
+  }
+  toast(
+    "Ghost ping by " + entry.authorTag + " in " + where + ": " + entry.content.slice(0, 120),
+    "msglogger-ghostping-" + entry.id
+  );
+}
+function getStore(name) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
+  try {
+    const s = typeof revenge !== "undefined" && ((_b = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores) || null;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const s = (_h = (_g = (_d = (_c = b == null ? void 0 : b.api) == null ? void 0 : _c.flux) == null ? void 0 : _d.stores) != null ? _g : (_f = (_e = b == null ? void 0 : b.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.Stores) != null ? _h : null;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const s = (_m = (_l = (_j = (_i = v == null ? void 0 : v.metro) == null ? void 0 : _i.common) == null ? void 0 : _j.Stores) != null ? _l : (_k = v == null ? void 0 : v.common) == null ? void 0 : _k.Stores) != null ? _m : null;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const metro = getMetro();
+    const m = (_n = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _n.call(metro, name);
+    if (m) return m;
+  } catch {
+  }
+  return null;
+}
+function storeMessage(channelId, id) {
+  var _a, _b, _c;
+  if (!channelId || !id) return null;
+  try {
+    return (_c = (_b = (_a = getMessageStore()) == null ? void 0 : _a.getMessage) == null ? void 0 : _b.call(_a, channelId, id)) != null ? _c : null;
+  } catch {
+  }
+  return null;
+}
+function recordFromMessage(message) {
+  var _a, _b, _c, _d;
+  if (!message) return void 0;
+  const author = (_a = message.author) != null ? _a : {};
+  return {
+    content: typeof message.content === "string" ? message.content : "",
+    authorTag: (_d = (_c = (_b = author.globalName) != null ? _b : author.global_name) != null ? _c : author.username) != null ? _d : "Unknown",
+    bot: !!author.bot
+  };
+}
+var pendingMessages = /* @__PURE__ */ new Map();
+function rememberPendingMessage(id, message) {
+  if (!id || !(message == null ? void 0 : message.id)) return;
+  pendingMessages.set(id, message);
+  if (pendingMessages.size > 200) {
+    const oldest = pendingMessages.keys().next();
+    if (!oldest.done) pendingMessages.delete(oldest.value);
+  }
+}
+function takePendingMessage(id) {
+  const found = pendingMessages.get(id);
+  if (found === void 0) return null;
+  pendingMessages.delete(id);
+  return found;
+}
+function channelGuildIdFor(channelId) {
+  var _a, _b, _c, _d;
+  try {
+    const ch = (_b = (_a = getChannelStore()) == null ? void 0 : _a.getChannel) == null ? void 0 : _b.call(_a, channelId);
+    return String((_d = (_c = ch == null ? void 0 : ch.guild_id) != null ? _c : ch == null ? void 0 : ch.guildId) != null ? _d : "");
+  } catch {
+  }
+  return "";
+}
+function isDmChannel(channelId) {
+  var _a, _b, _c;
+  if (!channelId) return false;
+  try {
+    const type = (_c = (_b = (_a = getChannelStore()) == null ? void 0 : _a.getChannel) == null ? void 0 : _b.call(_a, channelId)) == null ? void 0 : _c.type;
+    return type === 1 || type === 3;
+  } catch {
+  }
+  return false;
+}
+function currentChannelId() {
+  var _a, _b, _c, _d;
+  try {
+    const s = getStore("SelectedChannelStore");
+    return String((_d = (_c = (_a = s == null ? void 0 : s.getChannelId) == null ? void 0 : _a.call(s)) != null ? _c : (_b = s == null ? void 0 : s.getMostRecentSelectedTextChannelId) == null ? void 0 : _b.call(s)) != null ? _d : "");
+  } catch {
+  }
+  return "";
+}
+function isChannelMuted(channelId) {
+  var _a, _b;
+  if (!channelId) return false;
+  try {
+    return !!((_b = (_a = getStore("UserGuildSettingsStore")) == null ? void 0 : _a.isChannelMuted) == null ? void 0 : _b.call(_a, channelId));
+  } catch {
+  }
+  return false;
+}
+function isCategoryMuted(channelId) {
+  var _a, _b;
+  if (!channelId) return false;
+  try {
+    return !!((_b = (_a = getStore("UserGuildSettingsStore")) == null ? void 0 : _a.isCategoryMuted) == null ? void 0 : _b.call(_a, channelId));
+  } catch {
+  }
+  return false;
+}
+function isGuildMuted(guildId) {
+  var _a, _b;
+  if (!guildId) return false;
+  try {
+    return !!((_b = (_a = getStore("UserGuildSettingsStore")) == null ? void 0 : _a.isGuildMuted) == null ? void 0 : _b.call(_a, guildId));
+  } catch {
+  }
+  return false;
+}
+function tokenize(text) {
+  var _a;
+  return (_a = String(text != null ? text : "").match(/\s+|[^\s]+/g)) != null ? _a : [];
+}
+function diffWords(before, after) {
+  const a = tokenize(before);
+  const b = tokenize(after);
+  if (!a.length || !b.length || a.length * b.length > 4e4) {
+    if (String(before != null ? before : "") === String(after != null ? after : "")) return [{ type: "same", text: String(after != null ? after : "") }];
+    return [
+      { type: "removed", text: String(before != null ? before : "") },
+      { type: "added", text: String(after != null ? after : "") }
+    ];
+  }
+  const rows = [];
+  for (let i2 = 0; i2 <= a.length; i2++) rows.push(new Uint32Array(b.length + 1));
+  for (let i2 = a.length - 1; i2 >= 0; i2--) {
+    for (let j2 = b.length - 1; j2 >= 0; j2--) {
+      rows[i2][j2] = a[i2] === b[j2] ? rows[i2 + 1][j2 + 1] + 1 : Math.max(rows[i2 + 1][j2], rows[i2][j2 + 1]);
+    }
+  }
+  const parts = [];
+  const push = (type, text) => {
+    if (!text) return;
+    const last = parts[parts.length - 1];
+    if (last && last.type === type) last.text += text;
+    else parts.push({ type, text });
+  };
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      push("same", a[i]);
+      i++;
+      j++;
+    } else if (rows[i + 1][j] >= rows[i][j + 1]) {
+      push("removed", a[i]);
+      i++;
+    } else {
+      push("added", b[j]);
+      j++;
+    }
+  }
+  while (i < a.length) {
+    push("removed", a[i]);
+    i++;
+  }
+  while (j < b.length) {
+    push("added", b[j]);
+    j++;
+  }
+  return parts;
+}
+function diffToMarkdown(parts) {
+  let out = "";
+  for (const part of parts) {
+    if (part.type === "same") {
+      out += part.text;
+      continue;
+    }
+    const text = part.text.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    out += (part.type === "removed" ? "~~" + text + "~~" : "__" + text + "__") + " ";
+  }
+  return out.replace(/ {2,}/g, " ").trim();
+}
+function diffToSeparatedMarkdown(parts) {
+  const join = (type) => parts.filter((p) => p.type === type).map((p) => p.text).join("").replace(/\s+/g, " ").trim();
+  const removed = join("removed");
+  const added = join("added");
+  const lines = [];
+  if (removed) lines.push("~~" + removed + "~~");
+  if (added) lines.push("__" + added + "__");
+  return lines.join("\n") || "(no text change)";
+}
+function changeLine(before, after) {
+  if (!cfg.showEditDiffs) return before;
+  const parts = diffWords(before, after);
+  return cfg.separatedDiffs ? diffToSeparatedMarkdown(parts) : diffToMarkdown(parts);
+}
+var IMG_DIR_NAME = "message-logger/images";
+var IMG_INDEX_FILE = "message-logger/images-index.json";
+var imageIndex = {};
+var imageQueue = [];
+var imageBusy = false;
+var imageIndexDirty = false;
+function getFetch() {
+  try {
+    if (typeof fetch === "function") return fetch.bind(globalThis);
+  } catch {
+  }
+  return null;
+}
+function getBlobReader() {
+  try {
+    if (typeof FileReader === "function") {
+      return (blob) => new Promise((resolve, reject) => {
+        try {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result));
+          fr.onerror = () => reject(fr.error);
+          fr.readAsDataURL(blob);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+    if (typeof Blob === "function" && typeof Blob.prototype.arrayBuffer === "function") {
+      return async (blob) => {
+        const buf = await blob.arrayBuffer();
+        let s = "";
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return "data:application/octet-stream;base64," + btoa(s);
+      };
+    }
+  } catch {
+  }
+  return null;
+}
+function getNormalizedFs() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const fm = getFileModule();
+  let modern = null;
+  try {
+    if (typeof revenge !== "undefined") {
+      modern = (_c = (_b = revenge == null ? void 0 : revenge.fs) != null ? _b : (_a = revenge == null ? void 0 : revenge.native) == null ? void 0 : _a.fs) != null ? _c : null;
+    }
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    modern = modern || (b == null ? void 0 : b.fs) || ((_d = b == null ? void 0 : b.native) == null ? void 0 : _d.fs) || null;
+  } catch {
+  }
+  if (modern && typeof modern.writeFile === "function" && typeof modern.readFile === "function") {
+    let root = "";
     try {
-      const d = (_e = candidate == null ? void 0 : candidate.Design) != null ? _e : candidate;
-      if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
+      if (typeof modern.getConstants === "function") {
+        const c = modern.getConstants();
+        root = String((_f = (_e = c == null ? void 0 : c.files) != null ? _e : c == null ? void 0 : c.data) != null ? _f : "");
+      }
+    } catch {
+    }
+    const abs = (p) => root ? root + "/" + p : p;
+    return {
+      dirPath: root ? root + "/" + IMG_DIR_NAME : null,
+      writeImage: async (name, dataB64) => {
+        await modern.writeFile(abs(IMG_DIR_NAME + "/" + name), dataB64);
+      },
+      writeText: async (path, data) => {
+        await modern.writeFile(abs(path), data);
+      },
+      readText: async (path) => String(await modern.readFile(abs(path))),
+      remove: async (path) => {
+        try {
+          if (typeof modern.rm === "function") return !!await modern.rm(path);
+          if (typeof modern.deleteFileSync === "function") return !!modern.deleteFileSync(path);
+          if (typeof modern.unlink === "function") {
+            await modern.unlink(path);
+            return true;
+          }
+        } catch {
+        }
+        return false;
+      }
+    };
+  }
+  if (fm && typeof fm.writeFile === "function") {
+    let docs = "";
+    try {
+      docs = String((_i = (_h = (_g = fm.getConstants) == null ? void 0 : _g.call(fm)) == null ? void 0 : _h.DocumentsDirPath) != null ? _i : "/docs");
+    } catch {
+    }
+    return {
+      dirPath: docs + "/" + IMG_DIR_NAME,
+      writeImage: async (name, dataB64) => {
+        await fm.writeFile("documents", IMG_DIR_NAME + "/" + name, dataB64, "base64");
+      },
+      writeText: async (_path, data) => {
+        await fm.writeFile("documents", IMG_INDEX_FILE, data, "utf8");
+      },
+      readText: async (_path) => String(await fm.readFile(docs + "/" + IMG_INDEX_FILE, "utf8")),
+      remove: async (_path) => false
+      // legacy FileModule has no delete primitive
+    };
+  }
+  return null;
+}
+async function loadImageIndex() {
+  const fs = getNormalizedFs();
+  if (!fs) return;
+  try {
+    const raw = await fs.readText(IMG_INDEX_FILE);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") imageIndex = parsed;
+  } catch {
+  }
+}
+async function saveImageIndex(fs) {
+  if (!imageIndexDirty) return;
+  try {
+    await fs.writeText(IMG_INDEX_FILE, JSON.stringify(imageIndex));
+    imageIndexDirty = false;
+  } catch (e) {
+    hostError("failed to write image index", e);
+  }
+}
+function imageQuotaBytes() {
+  return Math.max(0, cfg.imageQuotaGB) * 1024 * 1024 * 1024;
+}
+function totalSavedBytes() {
+  var _a;
+  let sum = 0;
+  for (const id of Object.keys(imageIndex)) {
+    for (const img of (_a = imageIndex[id]) != null ? _a : []) sum += img.bytes || 0;
+  }
+  return sum;
+}
+async function evictOverQuota(fs, extraBytes) {
+  var _a, _b, _c, _d;
+  let total = totalSavedBytes() + extraBytes;
+  const quota = imageQuotaBytes();
+  if (total <= quota) return;
+  const entries = [];
+  for (const id of Object.keys(imageIndex)) {
+    ((_a = imageIndex[id]) != null ? _a : []).forEach((img, i) => entries.push({ id, img, i }));
+  }
+  entries.sort((a, b) => a.img.time - b.img.time);
+  for (const e of entries) {
+    if (total <= quota) break;
+    const ok = await fs.remove(((_b = fs.dirPath) != null ? _b : "") + "/" + e.img.file);
+    if (ok || !fs.dirPath) {
+      imageIndex[e.id] = ((_c = imageIndex[e.id]) != null ? _c : []).filter((_, i) => i !== e.i);
+      if (!((_d = imageIndex[e.id]) == null ? void 0 : _d.length)) delete imageIndex[e.id];
+      total -= e.img.bytes || 0;
+      imageIndexDirty = true;
+    } else {
+      break;
+    }
+  }
+}
+function enqueueImageSave(messageId, url) {
+  if (!cfg.saveImages || imageQuotaBytes() <= 0) return;
+  if (!getFetch() || !getBlobReader()) return;
+  imageQueue.push({ id: messageId, url });
+  if (imageQueue.length > 100) imageQueue.shift();
+  void pumpImageQueue();
+}
+async function pumpImageQueue() {
+  if (imageBusy) return;
+  imageBusy = true;
+  try {
+    while (imageQueue.length > 0) {
+      const job = imageQueue.shift();
+      try {
+        await saveOneImage(job.id, job.url);
+      } catch (e) {
+        hostError("image save failed", e);
+      }
+    }
+  } finally {
+    imageBusy = false;
+  }
+}
+async function saveOneImage(messageId, url) {
+  var _a, _b, _c;
+  const fs = getNormalizedFs();
+  if (!fs) return;
+  const fetchFn = getFetch();
+  const readBlob = getBlobReader();
+  if (!fetchFn || !readBlob) return;
+  const res = await fetchFn(url, { method: "GET" });
+  if (!res || !res.ok) return;
+  const blob = await res.blob();
+  const dataUrl = await readBlob(blob);
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return;
+  const mime = dataUrl.slice(5, dataUrl.indexOf(";")) || "image/png";
+  const b64 = dataUrl.slice(comma + 1);
+  const bytes = Math.floor(b64.length * 3 / 4);
+  if (bytes > cfg.attachmentSizeLimitMB * 1024 * 1024) return;
+  if (bytes > imageQuotaBytes()) return;
+  await evictOverQuota(fs, bytes);
+  const stamp = Date.now();
+  const name = messageId + "-" + stamp + "-" + ((_b = (_a = imageIndex[messageId]) == null ? void 0 : _a.length) != null ? _b : 0) + ".b64";
+  await fs.writeImage(name, b64);
+  imageIndex[messageId] = [
+    ...(_c = imageIndex[messageId]) != null ? _c : [],
+    { file: name, bytes, time: stamp, mime }
+  ];
+  imageIndexDirty = true;
+  await saveImageIndex(fs);
+  const entry = log[messageId];
+  if (entry) {
+    entry.savedImages = imageIndex[messageId].length;
+    void persistLog();
+  }
+}
+function allowedExtensions() {
+  return cfg.attachmentExtensions.split(/[\s,]+/).map((s) => s.trim().toLowerCase().replace(/^\./, "")).filter(Boolean);
+}
+function readSavedImageB64(file) {
+  var _a;
+  try {
+    const fm = getFileModule();
+    if (fm && typeof fm.readFileSync === "function") {
+      return String((_a = fm.readFileSync(docRoot + "/" + IMG_DIR_NAME + "/" + file, "base64")) != null ? _a : "");
+    }
+  } catch {
+  }
+  return "";
+}
+function isCacheableImageUrl(url) {
+  if (/(^|\/)(cdn\.discordapp\.com|media\.discordapp\.net)\//.test(url) === false) return false;
+  const exts = allowedExtensions();
+  if (!exts.length) return false;
+  return exts.some((ext) => new RegExp("\\." + ext + "(\\?|$)", "i").test(url));
+}
+function queueImagesForEntry(entry) {
+  if (!cfg.saveImages) return;
+  const urls = entry.attachments.filter(isCacheableImageUrl).slice(0, 5);
+  for (const url of urls) enqueueImageSave(entry.id, url);
+}
+var cleanupTimer = null;
+function runTimeBasedCleanup() {
+  const mins = cfg.timeBasedCleanupMinutes;
+  if (!mins) return;
+  const cutoff = Date.now() - mins * 6e4;
+  let removed = 0;
+  for (const id of Object.keys(log)) {
+    if (log[id].timestamp < cutoff) {
+      delete log[id];
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    void persistLog();
+    hostLog("time-based cleanup removed " + removed + " old entries");
+  }
+}
+function startCleanupInterval() {
+  stopCleanupInterval();
+  if (!cfg.timeBasedCleanupMinutes) return;
+  cleanupTimer = setInterval(runTimeBasedCleanup, Math.max(5, Math.min(cfg.timeBasedCleanupMinutes, 60)) * 6e4);
+  if (typeof (cleanupTimer == null ? void 0 : cleanupTimer.unref) === "function") cleanupTimer.unref();
+}
+function stopCleanupInterval() {
+  if (cleanupTimer) {
+    try {
+      clearInterval(cleanupTimer);
+    } catch {
+    }
+    cleanupTimer = null;
+  }
+}
+function handleCreate(payload) {
+  if (!cfg.enabled) return;
+  const message = payload == null ? void 0 : payload.message;
+  if (!(message == null ? void 0 : message.id)) return;
+  rememberForHighlight(payload);
+  const snap = snapshotOf(message, currentUserId());
+  if (!gateMessage(message, snap)) return;
+  const self = snap.authorId && snap.authorId === currentUserId();
+  if (cfg.ignoreBots && snap.bot || cfg.ignoreWebhooks && snap.webhook || cfg.ignoreSelf && self || inList(snap.authorId, cfg.ignoredUsers)) {
+    rememberSkipped(snap.id);
+    return;
+  }
+  seen.set(snap.id, snap);
+  if (seen.size > cfg.maxStored * 4) {
+    const first = seen.keys().next();
+    if (!first.done) seen.delete(first.value);
+  }
+}
+function handleDelete(payload) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
+  if (!cfg.enabled || !cfg.logDeletes) return;
+  if (payload == null ? void 0 : payload.mlDeleted) return;
+  const id = String((_c = (_b = (_a = payload == null ? void 0 : payload.message) == null ? void 0 : _a.id) != null ? _b : payload == null ? void 0 : payload.id) != null ? _c : "");
+  const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
+  if (!id || inList(channelId, cfg.ignoredChannels)) return;
+  if (!gateMessage((_g = payload == null ? void 0 : payload.message) != null ? _g : { id, channelId }, { id, channelId, guildId: String((_h = payload == null ? void 0 : payload.guildId) != null ? _h : "") })) return;
+  if (((_i = log[id]) == null ? void 0 : _i.status) === "deleted") return;
+  if (takeSkipped(id)) {
+    seen.delete(id);
+    return;
+  }
+  const rescued = (_j = takePendingMessage(id)) != null ? _j : storeMessage(channelId, id);
+  const fallback = (rescued == null ? void 0 : rescued.id) ? rescued : payload == null ? void 0 : payload.message;
+  const snap = (_k = seen.get(id)) != null ? _k : snapshotOf((fallback == null ? void 0 : fallback.id) ? fallback : { id, channelId }, currentUserId());
+  if (snap.attachments.length === 0 && Array.isArray((_l = payload == null ? void 0 : payload.message) == null ? void 0 : _l.embeds) && payload.message.embeds.length > 0) {
+    snap.attachments = payload.message.embeds.map((e) => {
+      var _a2, _b2, _c2, _d2, _e2, _f2;
+      return String((_f2 = (_e2 = (_c2 = (_a2 = e == null ? void 0 : e.image) == null ? void 0 : _a2.url) != null ? _c2 : (_b2 = e == null ? void 0 : e.image) == null ? void 0 : _b2.proxy_url) != null ? _e2 : (_d2 = e == null ? void 0 : e.thumbnail) == null ? void 0 : _d2.url) != null ? _f2 : "");
+    }).filter(Boolean).slice(0, 5);
+  }
+  if (cfg.ignoreBots && snap.bot) {
+    seen.delete(id);
+    return;
+  }
+  if (cfg.ignoreWebhooks && snap.webhook) {
+    seen.delete(id);
+    return;
+  }
+  if (cfg.ignoreSelf && snap.authorId && snap.authorId === currentUserId()) {
+    seen.delete(id);
+    return;
+  }
+  if (inList(snap.authorId, cfg.ignoredUsers)) {
+    seen.delete(id);
+    return;
+  }
+  seen.delete(id);
+  const ghost = cfg.ghostPings && snap.mentionsMe;
+  log[id] = {
+    ...snap,
+    status: "deleted",
+    edits: (_n = (_m = log[id]) == null ? void 0 : _m.edits) != null ? _n : [],
+    mentionsMe: snap.mentionsMe,
+    ghostPing: ghost
+  };
+  prune(cfg.maxStored);
+  void persistLog();
+  queueImagesForEntry(log[id]);
+  if (ghost) toastGhostPing(log[id]);
+}
+function handleDeleteBulk(payload) {
+  const ids = Array.isArray(payload == null ? void 0 : payload.ids) ? payload.ids : [];
+  for (const id of ids) {
+    handleDelete({ message: { id, channelId: payload == null ? void 0 : payload.channelId } });
+  }
+}
+function handleUpdate(payload) {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  if (!cfg.enabled || !cfg.logEdits) return;
+  const message = payload == null ? void 0 : payload.message;
+  if (!(message == null ? void 0 : message.id)) return;
+  rememberForHighlight(payload);
+  if (typeof message.content !== "string") return;
+  const id = String(message.id);
+  const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
+  const prev = seen.get(id);
+  const prior = (_c = takePendingMessage(id)) != null ? _c : storeMessage(channelId, id);
+  const snap = snapshotOf(message, currentUserId());
+  if (!gateMessage(message, snap)) return;
+  if (cfg.ignoreBots && snap.bot) return;
+  if (cfg.ignoreWebhooks && snap.webhook) return;
+  const self = snap.authorId && snap.authorId === currentUserId();
+  if (cfg.ignoreSelf && self) return;
+  if (cfg.ignoreSelfEdits && self) return;
+  if (inList(snap.authorId, cfg.ignoredUsers)) return;
+  seen.set(id, snap);
+  const prevContent = prev && typeof prev.content === "string" ? prev.content : null;
+  const known = prevContent !== null ? prevContent : typeof (prior == null ? void 0 : prior.content) === "string" ? prior.content : null;
+  const isRealEdit = known !== null && known !== snap.content;
+  const existing = log[id];
+  const flagged = !!((_e = (_d = message.editedTimestamp) != null ? _d : message.edited_timestamp) != null ? _e : message.edited === true);
+  const unknownPriorEdit = known === null && flagged && !existing;
+  if (!isRealEdit && !unknownPriorEdit && !existing) return;
+  const priorHistory = (_f = prev == null ? void 0 : prev.editHistory) != null ? _f : [];
+  if (isRealEdit) priorHistory.push(String(known));
+  if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
+  const edits = [...(_g = existing == null ? void 0 : existing.edits) != null ? _g : [], ...isRealEdit ? [String(known)] : []].slice(-10);
+  log[id] = {
+    ...snap,
+    status: "edited",
+    edits,
+    mentionsMe: snap.mentionsMe,
+    ghostPing: (_h = existing == null ? void 0 : existing.ghostPing) != null ? _h : false,
+    priorUnknown: edits.length === 0 && known === null ? true : void 0
+  };
+  prune(cfg.maxStored);
+  void persistLog();
+}
+function restoreHighlightsFromLog() {
+  var _a, _b;
+  try {
+    let restored = 0;
+    for (const id of Object.keys(log)) {
+      const entry = log[id];
+      if (!(entry == null ? void 0 : entry.channelId)) continue;
+      if (entry.status === "deleted") {
+        if (!deletedMessageMap.has(id)) {
+          deletedMessageMap.set(id, { channelId: entry.channelId, timestamp: (_a = entry.timestamp) != null ? _a : Date.now() });
+          restored++;
+        }
+      } else if (entry.status === "edited" && !editedMessageMap.has(id)) {
+        editedMessageMap.set(id, { channelId: entry.channelId, timestamp: (_b = entry.timestamp) != null ? _b : Date.now() });
+        restored++;
+      }
+    }
+    if (restored > 0) hostLog("restored " + restored + " highlight(s) from saved log");
+  } catch (e) {
+    hostError("highlight restore failed", e);
+  }
+}
+function rememberForHighlight(payload) {
+  var _a, _b, _c, _d, _e;
+  try {
+    const message = payload == null ? void 0 : payload.message;
+    if (!(message == null ? void 0 : message.id)) return;
+    const channelId = String((_b = (_a = message.channelId) != null ? _a : message.channel_id) != null ? _b : "");
+    const content = typeof message.content === "string" ? message.content : "";
+    const author = (_c = message.author) != null ? _c : {};
+    const rec = {
+      channelId,
+      timestamp: Date.now(),
+      content,
+      authorTag: (_e = (_d = author.global_name) != null ? _d : author.username) != null ? _e : "Unknown",
+      bot: !!author.bot
+    };
+    const isEdit = deletedMessageMap.has(String(message.id));
+    if (content) (isEdit ? highlightEdits : highlightCreates).set(String(message.id), rec);
+    if (isEdit) deletedMessageMap.delete(String(message.id));
+  } catch {
+  }
+}
+function trimHighlightCache(map) {
+  if (map.size <= HIGHLIGHT_MAX) return;
+  const oldest = map.keys().next();
+  if (!oldest.done) map.delete(oldest.value);
+}
+function isSelfDelete(id) {
+  if (!manualDeletes.has(id)) return false;
+  manualDeletes.delete(id);
+  return true;
+}
+function markHighlightDeleted(id, channelId) {
+  deletedMessageMap.set(id, { channelId, timestamp: Date.now() });
+  trimHighlightCache(deletedMessageMap);
+}
+function markHighlightEdited(id, channelId) {
+  if (deletedMessageMap.has(id)) return;
+  editedMessageMap.set(id, { channelId, timestamp: Date.now() });
+  trimHighlightCache(editedMessageMap);
+}
+var highlightCreates = /* @__PURE__ */ new Map();
+var highlightEdits = /* @__PURE__ */ new Map();
+function cachedRecordFor(id) {
+  var _a;
+  return (_a = highlightCreates.get(id)) != null ? _a : highlightEdits.get(id);
+}
+function buildAutomodEvent(id, channelId, record) {
+  return {
+    type: "MESSAGE_EDIT_FAILED_AUTOMOD",
+    messageData: {
+      type: 1,
+      message: {
+        channelId,
+        messageId: id
+      }
+    },
+    errorResponseBody: {
+      code: 2e5,
+      message: (record == null ? void 0 : record.content) || "(deleted)"
+    }
+  };
+}
+function installDeleteRewrite(dispatcher, addCleanup) {
+  if (!dispatcher || typeof dispatcher.addInterceptor !== "function") return false;
+  const dispatch = typeof dispatcher.dispatch === "function" ? dispatcher.dispatch.bind(dispatcher) : null;
+  try {
+    const interceptor = (payload) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+      try {
+        const type = payload == null ? void 0 : payload.type;
+        if (type === "MESSAGE_DELETE" && cfg.logDeletes) {
+          if (payload == null ? void 0 : payload.mlDeleted) return void 0;
+          const id = String((_d = (_c = (_a = payload == null ? void 0 : payload.id) != null ? _a : payload == null ? void 0 : payload.messageId) != null ? _c : (_b = payload == null ? void 0 : payload.message) == null ? void 0 : _b.id) != null ? _d : "");
+          const channelId = String((_j = (_i = (_g = (_e = payload == null ? void 0 : payload.channelId) != null ? _e : payload == null ? void 0 : payload.channel_id) != null ? _g : (_f = payload == null ? void 0 : payload.message) == null ? void 0 : _f.channelId) != null ? _i : (_h = payload == null ? void 0 : payload.message) == null ? void 0 : _h.channel_id) != null ? _j : "");
+          if (!id || !channelId) return;
+          if (isSelfDelete(id)) {
+            if (!cfg.keepSelfDeletes) return void 0;
+          }
+          if (inList(channelId, cfg.ignoredChannels)) return;
+          const stored = storeMessage(channelId, id);
+          rememberPendingMessage(id, stored);
+          const record = (_k = cachedRecordFor(id)) != null ? _k : recordFromMessage(stored);
+          if (cfg.ignoreBots && (record == null ? void 0 : record.bot)) return;
+          const authorId = (_n = (_l = seen.get(id)) == null ? void 0 : _l.authorId) != null ? _n : (_m = log[id]) == null ? void 0 : _m.authorId;
+          if (cfg.ignoreSelf && authorId && authorId === currentUserId()) return;
+          if (inList(authorId, cfg.ignoredUsers)) return;
+          handleDelete(payload);
+          markHighlightDeleted(id, channelId);
+          return buildAutomodEvent(id, channelId, record);
+        }
+        if (type === "MESSAGE_DELETE_BULK" && cfg.logDeletes) {
+          const ids = Array.isArray(payload == null ? void 0 : payload.ids) ? payload.ids.map(String) : [];
+          const channelId = String((_p = (_o = payload == null ? void 0 : payload.channelId) != null ? _o : payload == null ? void 0 : payload.channel_id) != null ? _p : "");
+          if (!ids.length || !channelId) return;
+          const kept = ids.filter((id) => {
+            var _a2;
+            if (isSelfDelete(id)) return false;
+            if (inList(channelId, cfg.ignoredChannels)) return false;
+            if (cfg.ignoreBots && ((_a2 = cachedRecordFor(id)) == null ? void 0 : _a2.bot)) return false;
+            return true;
+          });
+          if (!kept.length) return;
+          for (const id of kept) {
+            rememberPendingMessage(id, storeMessage(channelId, id));
+            markHighlightDeleted(id, channelId);
+            handleDeleteBulk({ ids: [id], channelId });
+          }
+          if (dispatch) {
+            setTimeout(() => {
+              for (const id of kept) {
+                try {
+                  dispatch(buildAutomodEvent(id, channelId, cachedRecordFor(id)));
+                } catch {
+                }
+              }
+            }, 0);
+            return false;
+          }
+          return;
+        }
+        if (type === "MESSAGE_UPDATE") {
+          const raw = payload == null ? void 0 : payload.message;
+          const id = String((_q = raw == null ? void 0 : raw.id) != null ? _q : "");
+          const channelId = String((_s = (_r = raw == null ? void 0 : raw.channelId) != null ? _r : raw == null ? void 0 : raw.channel_id) != null ? _s : "");
+          if (id && channelId && cfg.logEdits && !inList(channelId, cfg.ignoredChannels)) {
+            if (typeof (raw == null ? void 0 : raw.content) === "string") {
+              const stored = storeMessage(channelId, id);
+              if (stored && typeof stored.content === "string" && stored.content !== raw.content) {
+                rememberPendingMessage(id, stored);
+              }
+            }
+            markHighlightEdited(id, channelId);
+          }
+          return;
+        }
+      } catch (e) {
+        hostError("rewrite interceptor failed", e);
+      }
+      return;
+    };
+    const off = dispatcher.addInterceptor(interceptor);
+    addCleanup(typeof off === "function" ? off : () => {
+      var _a;
+      try {
+        const list = (_a = dispatcher._interceptors) != null ? _a : dispatcher._dependencies;
+        if (Array.isArray(list)) {
+          const i = list.indexOf(interceptor);
+          if (i >= 0) list.splice(i, 1);
+        }
+      } catch {
+      }
+    });
+    return true;
+  } catch (e) {
+    hostError("could not install delete rewrite", e);
+    return false;
+  }
+}
+function paintRow(row, processColor) {
+  var _a, _b, _c, _d;
+  const msg = row == null ? void 0 : row.message;
+  if (!(msg == null ? void 0 : msg.id)) return;
+  const id = String(msg.id);
+  const isDel = deletedMessageMap.has(id);
+  const isEd = editedMessageMap.has(id);
+  if (!isDel && !isEd) return;
+  if (isDel) {
+    const entry = log[id];
+    const who = cfg.deletedInfo && (entry == null ? void 0 : entry.authorTag) ? " by " + entry.authorTag : "";
+    const when = cfg.deletedInfo && (entry == null ? void 0 : entry.timestamp) ? " at " + new Date(entry.timestamp).toLocaleString() : "";
+    msg.edited = "(deleted" + who + when + ")";
+    const red = processColor("#f04747");
+    if (cfg.deleteStyle === "overlay") {
+      delete msg.textColor;
+      row.backgroundHighlight = { backgroundColor: processColor("#f0474740") };
+    } else {
+      msg.textColor = red;
+      row.backgroundHighlight = {
+        backgroundColor: processColor("#f047471f"),
+        gutterColor: red
+      };
+    }
+    const taken = (_b = (_a = entry == null ? void 0 : entry.attachments) == null ? void 0 : _a.length) != null ? _b : 0;
+    if (cfg.logDeletedAttachments && taken > 0 && typeof msg.content === "string") {
+      const marker = "*(" + (taken === 1 ? "deleted attachment" : taken + " deleted attachments") + ")*";
+      if (!msg.content.includes(marker)) msg.content = msg.content + "\n" + marker;
+    }
+  } else {
+    delete row.backgroundHighlight;
+    delete row.highlight;
+    delete row.highlightColor;
+    delete row.highlightBackgroundColor;
+    delete msg.textColor;
+    delete msg.backgroundColor;
+  }
+  if (cfg.inlineEdits && typeof msg.content === "string") {
+    const history = (_d = (_c = log[id]) == null ? void 0 : _c.edits) != null ? _d : [];
+    if (history.length) {
+      const current = msg.content;
+      const versions = [...history, current];
+      const block = history.map((h, i) => {
+        var _a2;
+        return changeLine(String(h), String((_a2 = versions[i + 1]) != null ? _a2 : current)) + " (edited)";
+      }).join("\n");
+      const lines = msg.content.split("\n");
+      let start = 0;
+      while (start < history.length && start < lines.length - 1 && / \(edited\)$/.test(lines[start])) start++;
+      const body = lines.slice(start).join("\n");
+      const painted = body ? block + "\n" + body : block;
+      if (block && painted !== msg.content) msg.content = painted;
+    }
+  }
+}
+var rowPaintersInstalled = 0;
+function installRowPainters(addCleanup) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  const React = getReact();
+  const RN = getRN();
+  const processColor = (_a = RN == null ? void 0 : RN.processColor) != null ? _a : ((c) => c);
+  if (!cfg.colorHighlights) {
+    rowPaintersInstalled = 0;
+    return;
+  }
+  let installed = 0;
+  const patchBefore = (target, method, fn) => {
+    try {
+      const original = target == null ? void 0 : target[method];
+      if (typeof original !== "function") return false;
+      target[method] = function(...args) {
+        try {
+          fn(args);
+        } catch {
+        }
+        return original.apply(this, args);
+      };
+      addCleanup(() => {
+        try {
+          target[method] = original;
+        } catch {
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const paintArgs = (args) => {
+    var _a2;
+    const raw = args[1];
+    if (!raw) return;
+    const handleRow = (row) => {
+      if (!row || row.type !== 1) return;
+      paintRow(row, processColor);
+    };
+    if (typeof raw === "string") {
+      try {
+        const rows = JSON.parse(raw);
+        if (Array.isArray(rows)) {
+          let mutated = false;
+          for (const row of rows) {
+            if (((_a2 = row == null ? void 0 : row.message) == null ? void 0 : _a2.id) && (deletedMessageMap.has(String(row.message.id)) || editedMessageMap.has(String(row.message.id)))) {
+              handleRow(row);
+              mutated = true;
+            }
+          }
+          if (mutated) args[1] = JSON.stringify(rows);
+        }
+      } catch {
+      }
+    } else if (Array.isArray(raw)) {
+      for (const row of raw) handleRow(row);
+    } else if (Array.isArray(raw == null ? void 0 : raw.rows)) {
+      for (const row of raw.rows) handleRow(row);
+    }
+  };
+  void React;
+  const chatManager = (_b = RN == null ? void 0 : RN.NativeModules) == null ? void 0 : _b.DCDChatManager;
+  if (chatManager && patchBefore(chatManager, "updateRows", paintArgs)) installed++;
+  const metro = getMetro();
+  const jsChat = (_e = (_c = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _c.call(metro, "updateRows", "getConstants")) != null ? _e : (_d = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _d.call(metro, "updateRows");
+  if (jsChat && jsChat !== chatManager && patchBefore(jsChat, "updateRows", paintArgs)) installed++;
+  let rowManager = null;
+  try {
+    rowManager = (_j = (_i = (_f = metro == null ? void 0 : metro.findByName) == null ? void 0 : _f.call(metro, "RowManager", false)) != null ? _i : (_h = (_g = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _g.call(metro, "RowManager")) == null ? void 0 : _h.RowManager) != null ? _j : null;
+  } catch {
+  }
+  if ((_k = rowManager == null ? void 0 : rowManager.prototype) == null ? void 0 : _k.generate) {
+    try {
+      const proto = rowManager.prototype;
+      const original = proto.generate;
+      proto.generate = function(...args) {
+        var _a2;
+        const row = original.apply(this, args);
+        try {
+          const target = row && row.row || row;
+          if ((_a2 = target == null ? void 0 : target.message) == null ? void 0 : _a2.id) {
+            paintRow(target, processColor);
+          }
+        } catch {
+        }
+        return row;
+      };
+      addCleanup(() => {
+        try {
+          proto.generate = original;
+        } catch {
+        }
+      });
+      installed++;
     } catch {
     }
   }
+  rowPaintersInstalled = installed;
+  hostLog("row painters installed: " + installed);
+}
+function installSelfDeleteBypass(addCleanup) {
+  var _a, _b, _c;
   try {
-    const g = (_g = (_f = globalThis.revenge) == null ? void 0 : _f.discord) == null ? void 0 : _g.design;
-    const d = (_h = g == null ? void 0 : g.Design) != null ? _h : g;
+    const metro = getMetro();
+    const actions = (_c = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "deleteMessage", "startEditMessage")) != null ? _c : (_b = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _b.call(metro, "deleteMessage");
+    const del = actions == null ? void 0 : actions.deleteMessage;
+    if (typeof del !== "function") return false;
+    actions.deleteMessage = function(...args) {
+      var _a2, _b2;
+      try {
+        const id = String((_b2 = (_a2 = args == null ? void 0 : args[1]) != null ? _a2 : args == null ? void 0 : args[0]) != null ? _b2 : "");
+        if (id) manualDeletes.add(id);
+      } catch {
+      }
+      return del.apply(this, args);
+    };
+    addCleanup(() => {
+      try {
+        actions.deleteMessage = del;
+      } catch {
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resolveThemeMeta() {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  try {
+    const metro = getMetro();
+    const themeStore = (_f = (_e = (_a = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _a.call(metro, "ThemeStore")) != null ? _e : (_d = (_c = (_b = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _b.flux) == null ? void 0 : _c.Stores) == null ? void 0 : _d.ThemeStore) != null ? _f : null;
+    const theme = (_i = themeStore == null ? void 0 : themeStore.theme) != null ? _i : (_h = (_g = themeStore == null ? void 0 : themeStore.getState) == null ? void 0 : _g.call(themeStore)) == null ? void 0 : _h.theme;
+    if (theme === "light") return "light";
+  } catch {
+  }
+  return "dark";
+}
+function viewerColors() {
+  const theme = resolveThemeMeta();
+  if (theme === "light") {
+    return {
+      bg: "rgba(0,0,0,0.04)",
+      card: "rgba(0,0,0,0.05)",
+      text: "#060607",
+      sub: "#4e5058",
+      deleted: "#d83c3e",
+      deletedBg: "rgba(216,60,62,0.10)",
+      added: "#1a7f37",
+      edited: "#4e5058",
+      editedBg: "transparent"
+    };
+  }
+  return {
+    bg: "rgba(255,255,255,0.06)",
+    card: "rgba(255,255,255,0.08)",
+    text: "#dbdee1",
+    sub: "#949ba4",
+    deleted: "#f23f43",
+    deletedBg: "rgba(242,63,67,0.14)",
+    added: "#3ba55d",
+    edited: "#949ba4",
+    editedBg: "transparent"
+  };
+}
+function resolveDesign() {
+  var _a, _b, _c, _d;
+  try {
+    const g = (_b = (_a = globalThis.revenge) == null ? void 0 : _a.discord) == null ? void 0 : _b.design;
+    const d = (_c = g == null ? void 0 : g.Design) != null ? _c : g;
     if (d && (d.TableRowGroup || d.TableSwitchRow || d.TableRow)) return d;
   } catch {
   }
   try {
-    const b = (_i = globalThis.bunny) == null ? void 0 : _i.ui;
+    const b = (_d = globalThis.bunny) == null ? void 0 : _d.ui;
     if (b == null ? void 0 : b.FormTableRowGroup) return b;
   } catch {
   }
   return null;
 }
 function makeSettingsComponent() {
-  const ink = settingsInk();
-  const D = resolveDesign();
+  var _a, _b;
   const React = getReact();
   if (!React) return () => null;
   const el = React.createElement.bind(React);
   const RN = getRN() || {};
-  const { View = "view", Text = "text", TextInput = "input", Pressable = View } = RN;
-  const SwitchRowFallback = (props) => el(
-    Pressable,
-    {
-      onPress: () => props.onValueChange(!props.value),
-      style: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" }
-    },
-    el(Text, { style: { flex: 1, color: ink.text } }, props.label),
-    el(Text, { style: { color: ink.sub, marginLeft: 8 } }, props.value ? "On" : "Off")
-  );
+  const { View = "view", Text = "text", TextInput = "input", Pressable = View, ScrollView = View, Switch = null, Image = null } = RN;
+  const D = resolveDesign();
+  const DInput = (_b = (_a = D == null ? void 0 : D.TextInput) != null ? _a : D == null ? void 0 : D.TextField) != null ? _b : TextInput;
   function SwitchRow(props) {
     if (D == null ? void 0 : D.TableSwitchRow) {
       return el(D.TableSwitchRow, {
@@ -256,138 +1715,662 @@ function makeSettingsComponent() {
         onValueChange: props.onValueChange
       });
     }
-    return el(SwitchRowFallback, props, null);
-  }
-  function RowGroup(props) {
-    if (D == null ? void 0 : D.TableRowGroup) return el(D.TableRowGroup, { title: props.title, description: props.description }, ...props.children);
+    const c = viewerColors();
+    const toggle = Switch ? el(Switch, {
+      value: !!props.value,
+      onValueChange: props.onValueChange,
+      trackColor: { false: "rgba(128,128,128,0.35)", true: "#5865F2" },
+      thumbColor: "#ffffff"
+    }) : el(
+      Text,
+      { style: { color: c.sub }, onPress: () => props.onValueChange(!props.value) },
+      props.value ? "On" : "Off"
+    );
     return el(
       View,
-      { style: { marginVertical: 8 } },
-      el(Text, { style: { fontWeight: "bold", padding: 12, color: ink.text } }, props.title),
-      ...props.children
+      { style: { paddingHorizontal: 16, paddingVertical: 10 } },
+      el(
+        View,
+        { style: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" } },
+        el(Text, { style: { color: c.text, fontSize: 16, flex: 1, paddingRight: 12 } }, props.label),
+        toggle
+      ),
+      props.subLabel ? el(Text, { style: { color: c.sub, fontSize: 13, marginTop: 2 } }, props.subLabel) : null
     );
   }
+  function RowGroup(props) {
+    const c = viewerColors();
+    const kids = Array.isArray(props.children) ? props.children : props.children == null ? [] : [props.children];
+    if (D == null ? void 0 : D.TableRowGroup) return el(D.TableRowGroup, { title: props.title }, ...kids);
+    return el(
+      View,
+      { style: { marginTop: 16 } },
+      el(Text, { style: { color: c.text, fontSize: 15, fontWeight: "600", paddingHorizontal: 16, marginBottom: 6 } }, props.title),
+      el(
+        View,
+        { style: { backgroundColor: c.card, borderRadius: 12, marginHorizontal: 12, paddingVertical: 4 } },
+        ...kids
+      )
+    );
+  }
+  const DText = (props) => {
+    var _a2;
+    const design = getDesign();
+    const T = design == null ? void 0 : design.Text;
+    const style = { color: viewerColors().text, ...(_a2 = props == null ? void 0 : props.style) != null ? _a2 : {} };
+    return el(T || Text, { ...props, style }, ...Array.isArray(props == null ? void 0 : props.children) ? props.children : [props == null ? void 0 : props.children]);
+  };
   return function SettingsComponent2(props) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
-    const api = (_a = props == null ? void 0 : props.api) != null ? _a : classicSettingsApi();
-    const settings = (_d = (_c = (_b = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b.use) == null ? void 0 : _c.call(_b)) != null ? _d : cfg;
-    const [, force] = React.useState(0);
+    var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
+    const api = (_a2 = props == null ? void 0 : props.api) != null ? _a2 : classicSettingsApi();
+    const settings = (_d = (_c = (_b2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _b2.use) == null ? void 0 : _c.call(_b2)) != null ? _d : cfg;
+    const C = viewerColors();
+    const [entries, setEntries] = React.useState([]);
+    const [filter, setFilter] = React.useState("all");
+    const [query, setQuery] = React.useState("");
+    const [refreshTick, setRefreshTick] = React.useState(0);
+    const [selectedUser, setSelectedUser] = React.useState(null);
+    const [limit, setLimit] = React.useState(0);
+    const S = (key) => (settings == null ? void 0 : settings[key]) === void 0 ? DEFAULT_SETTINGS[key] : settings[key];
     React.useEffect(() => {
-      settingsChangedCb = () => force((n) => n + 1);
+      settingsChangedCb = () => setRefreshTick((t) => t + 1);
       return () => {
         settingsChangedCb = null;
       };
     }, []);
-    const toggleMode = (mode) => {
-      var _a2, _b2;
-      (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { mode });
-      force((n) => n + 1);
+    const reload = async () => {
+      var _a3;
+      const merged = {};
+      try {
+        const raw = await ((_a3 = getFileModule()) == null ? void 0 : _a3.readFile(logPath(), "utf8"));
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") Object.assign(merged, parsed);
+      } catch {
+      }
+      Object.assign(merged, log);
+      const list = Object.values(merged).sort((a, b) => b.timestamp - a.timestamp);
+      setEntries(list.slice(0, 300));
     };
-    const btn = (mode, label) => el(
+    React.useEffect(() => {
+      void reload();
+    }, [refreshTick]);
+    React.useEffect(() => {
+      setLimit(0);
+    }, [filter, query]);
+    const sortNewest = S("sortNewest") !== false;
+    const ordered = sortNewest ? entries : [...entries].reverse();
+    const pageSize = Math.max(10, Math.min(1e3, Number(S("logsPerPage")) || 100));
+    const visible = ordered.filter((m) => {
+      if (filter === "deleted" && m.status !== "deleted") return false;
+      if (filter === "edited" && m.status !== "edited") return false;
+      if (filter === "ghost" && !m.ghostPing) return false;
+      const q = query.trim().toLowerCase();
+      if (q && !(m.content.toLowerCase().includes(q) || m.authorTag.toLowerCase().includes(q)))
+        return false;
+      return true;
+    });
+    const shown = visible.slice(0, limit || pageSize);
+    const removeEntry = async (id) => {
+      try {
+        delete log[id];
+        await persistLog();
+        void reload();
+      } catch {
+      }
+    };
+    const exportLog = async () => {
+      try {
+        const clip = getClipboard();
+        if (!(clip == null ? void 0 : clip.setString)) throw new Error("clipboard unavailable");
+        clip.setString(JSON.stringify(Object.values(log), null, 2));
+        toast("Log copied to clipboard", "msglogger-export");
+      } catch {
+        toast("Export failed \u2014 clipboard unavailable", "msglogger-export-fail");
+      }
+    };
+    const importLog = async () => {
+      var _a3;
+      try {
+        const clip = getClipboard();
+        const raw = await ((_a3 = clip == null ? void 0 : clip.getString) == null ? void 0 : _a3.call(clip));
+        if (typeof raw !== "string" || !raw.trim()) throw new Error("clipboard empty");
+        const parsed = JSON.parse(raw);
+        const incoming = Array.isArray(parsed) ? parsed.reduce((acc, m) => {
+          if (m == null ? void 0 : m.id) acc[String(m.id)] = m;
+          return acc;
+        }, {}) : parsed && typeof parsed === "object" ? parsed : {};
+        let added = 0;
+        for (const id of Object.keys(incoming)) {
+          const entry = incoming[id];
+          if (!entry || typeof entry !== "object" || !entry.id && !entry.content) continue;
+          if (log[id]) continue;
+          log[id] = entry;
+          added++;
+        }
+        prune(cfg.maxStored);
+        await persistLog();
+        restoreHighlightsFromLog();
+        void reload();
+        notifySettingsChanged();
+        toast("Imported " + added + " new entr" + (added === 1 ? "y" : "ies"), "msglogger-import");
+      } catch {
+        toast("Import failed \u2014 clipboard must hold log JSON", "msglogger-import-fail");
+      }
+    };
+    const clearLog = async () => {
+      var _a3;
+      log = {};
+      try {
+        await ((_a3 = getFileModule()) == null ? void 0 : _a3.writeFile("documents", LOG_FILE, "{}", "utf8"));
+      } catch {
+      }
+      void reload();
+    };
+    const clearImageCache = async () => {
+      var _a3, _b3;
+      try {
+        const fs = getNormalizedFs();
+        const base = (_a3 = fs == null ? void 0 : fs.dirPath) != null ? _a3 : "";
+        for (const id of Object.keys(imageIndex)) {
+          for (const img of (_b3 = imageIndex[id]) != null ? _b3 : []) {
+            try {
+              await (fs == null ? void 0 : fs.remove(base + "/" + img.file));
+            } catch {
+            }
+          }
+        }
+        imageIndex = {};
+        imageIndexDirty = true;
+        if (fs) await saveImageIndex(fs);
+        toast("Saved images cleared", "msglogger-img-clear");
+      } catch {
+        toast("Could not clear saved images", "msglogger-img-clear-fail");
+      }
+    };
+    const byUser = {};
+    for (const m of entries) {
+      const key = m.authorId || m.authorTag || "unknown";
+      const u = (_e = byUser[key]) != null ? _e : byUser[key] = { name: m.authorTag || "Unknown", deleted: 0, edited: 0, ghosts: 0, total: 0 };
+      if (m.status === "deleted") u.deleted++;
+      else if (m.status === "edited") u.edited++;
+      if (m.ghostPing) u.ghosts++;
+      u.total++;
+    }
+    const userStats = Object.entries(byUser).map(([id, s]) => ({ id, ...s })).sort((a, b) => b.total - a.total).slice(0, 15);
+    const userEntries = selectedUser ? entries.filter((m) => (m.authorId || m.authorTag || "unknown") === selectedUser) : [];
+    const selectedName = selectedUser ? (_g = (_f = byUser[selectedUser]) == null ? void 0 : _f.name) != null ? _g : "" : "";
+    const tab = (key, label) => el(
       Pressable,
       {
-        key: mode,
-        onPress: () => toggleMode(mode),
-        style: { paddingVertical: 8, paddingHorizontal: 12 }
+        key,
+        onPress: () => setFilter(key),
+        style: { paddingVertical: 8, paddingHorizontal: 10 }
       },
-      el(Text, { style: { fontWeight: (settings == null ? void 0 : settings.mode) === mode ? "bold" : "normal", color: ink.text } }, label)
+      el(
+        Text,
+        { style: { fontWeight: filter === key ? "bold" : "normal", color: filter === key ? C.text : C.sub } },
+        label
+      )
     );
-    return el(
+    const sw = (key, label, subLabel) => el(SwitchRow, {
+      key,
+      label,
+      subLabel,
+      value: !!S(key),
+      onValueChange: (v) => {
+        var _a3, _b3;
+        return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { [key]: v });
+      }
+    });
+    const choice = (key, label, subLabel, options) => el(
       View,
-      null,
+      { key, style: { paddingHorizontal: 16, paddingVertical: 10 } },
+      el(Text, { style: { color: C.text, fontSize: 15, fontWeight: "600" } }, label),
+      el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, subLabel),
+      el(
+        View,
+        { style: { flexDirection: "row", flexWrap: "wrap", marginTop: 6 } },
+        ...options.map(
+          (o) => el(
+            Pressable,
+            {
+              key: o.value,
+              onPress: () => {
+                var _a3, _b3;
+                return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { [key]: o.value });
+              },
+              style: {
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                marginRight: 8,
+                marginBottom: 6,
+                backgroundColor: S(key) === o.value ? "#5865F2" : C.card
+              }
+            },
+            el(
+              Text,
+              {
+                style: {
+                  color: S(key) === o.value ? "#ffffff" : C.sub,
+                  fontWeight: "700",
+                  fontSize: 13
+                }
+              },
+              o.label
+            )
+          )
+        )
+      )
+    );
+    const diffLine = (before, after, key = "diff") => {
+      if (!cfg.showEditDiffs) return null;
+      const parts = diffWords(before, after);
+      if (cfg.separatedDiffs) {
+        const removed = parts.filter((p) => p.type === "removed").map((p) => p.text).join("").trim();
+        const added = parts.filter((p) => p.type === "added").map((p) => p.text).join("").trim();
+        const rows = [];
+        if (removed)
+          rows.push(
+            el(
+              Text,
+              { key: "removed", style: { color: C.deleted, fontSize: 12, textDecorationLine: "line-through" } },
+              removed
+            )
+          );
+        if (added)
+          rows.push(el(Text, { key: "added", style: { color: C.added, fontSize: 12 } }, added));
+        return el(View, { key, style: { marginTop: 4 } }, ...rows);
+      }
+      return el(
+        View,
+        { key, style: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 } },
+        ...parts.filter((p) => p.text.trim().length > 0).map(
+          (p, i) => el(
+            Text,
+            {
+              key: i,
+              style: {
+                fontSize: 12,
+                color: p.type === "removed" ? C.deleted : p.type === "added" ? C.added : C.sub,
+                textDecorationLine: p.type === "removed" ? "line-through" : "none"
+              }
+            },
+            p.text
+          )
+        )
+      );
+    };
+    const deletedCount = entries.filter((m) => m.status === "deleted").length;
+    const editedCount = entries.filter((m) => m.status === "edited").length;
+    const ghostCount = entries.filter((m) => m.ghostPing).length;
+    return el(
+      ScrollView,
+      { style: { flexGrow: 1, backgroundColor: C.bg }, contentContainerStyle: { paddingBottom: 24 } },
+      el(
+        View,
+        { style: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 } },
+        el(Text, { style: { color: C.text, fontSize: 22, fontWeight: "800" } }, "MessageLogger"),
+        el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 3 } }, "Your saved message history and capture settings")
+      ),
+      el(
+        View,
+        { style: { flexDirection: "row", marginHorizontal: 12, marginTop: 8 } },
+        ...[
+          { label: "SAVED", value: String(entries.length), color: C.text },
+          { label: "DELETED", value: String(deletedCount), color: C.deleted },
+          { label: "EDITED", value: String(editedCount), color: C.edited },
+          { label: "GHOSTS", value: String(ghostCount), color: C.sub }
+        ].map((stat) => el(
+          View,
+          { key: stat.label, style: { flex: 1, backgroundColor: C.card, borderRadius: 10, paddingVertical: 10, marginHorizontal: 3, alignItems: "center" } },
+          el(Text, { style: { color: stat.color, fontSize: 17, fontWeight: "800" } }, stat.value),
+          el(Text, { style: { color: C.sub, fontSize: 9, fontWeight: "700", marginTop: 2 } }, stat.label)
+        ))
+      ),
       el(
         RowGroup,
-        { title: "Clean URLs" },
-        el(SwitchRow, {
-          key: "enabled",
-          label: "Enabled",
-          value: (settings == null ? void 0 : settings.enabled) !== false,
-          onValueChange: (v) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(_a2, { enabled: v });
-          }
+        { title: "Status" },
+        el(DText, null, "Host: " + (hostKind === "next" ? "Revenge (Next API)" : "Classic / vendetta") + (storageKind ? " \xB7 storage: " + storageKind : "")),
+        el(DText, null, startedAt ? "Running since " + new Date(startedAt).toLocaleTimeString() : "Not started \u2014 toggle the plugin off and on"),
+        el(DText, null, "Flux handlers: " + handlersRegistered + "/5 \xB7 row painters: " + rowPaintersInstalled),
+        lastStartError ? el(DText, null, "Last error: " + lastStartError) : null
+      ),
+      el(
+        RowGroup,
+        { title: "MessageLogger" },
+        sw("enabled", "Enabled"),
+        sw("logDeletes", "Log deleted messages"),
+        sw("restoreDeletedInChat", "Restore deleted in chat", "Re-inject logged deleted messages when you open their channel"),
+        sw("keepSelfDeletes", "Keep my own deletes visible", "Off: your own deleted messages vanish like normal"),
+        sw("deletedInfo", "Show deleted info", 'Red rows show "[deleted by X at \u2026]"'),
+        sw("logEdits", "Log edited messages"),
+        sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
+        sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
+        choice("deleteStyle", "Deleted message style", "Red text, or a red row overlay with normal text.", [
+          { value: "text", label: "Red text" },
+          { value: "overlay", label: "Red overlay" }
+        ]),
+        sw("logDeletedAttachments", "Log deleted attachments", "Mark attachments the delete removed on the kept row"),
+        sw("showEditDiffs", "Show edit diffs", "Previous versions read as a real diff: strikethrough removed, underline added"),
+        sw("separatedDiffs", "Separated diffs", "Show removals and additions on their own lines"),
+        sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
+        el(DText, null, "Attachment size limit (MB) \u2014 larger files are not saved."),
+        el(DInput, {
+          placeholder: "100",
+          placeholderTextColor: C.sub,
+          defaultValue: String((_h = settings == null ? void 0 : settings.attachmentSizeLimitMB) != null ? _h : 100),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseFloat(t);
+            if (!isNaN(n) && n >= 1 && n <= 1024) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { attachmentSizeLimitMB: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
-        el(View, { style: { flexDirection: "row", paddingVertical: 4 } }, btn("blacklist", "Blacklist mode"), btn("whitelist", "Whitelist mode")),
+        el(DText, null, "Attachment file extensions \u2014 comma-separated allowlist."),
+        el(DInput, {
+          placeholder: "png,jpg,jpeg,gif,webp",
+          placeholderTextColor: C.sub,
+          defaultValue: (_i = settings == null ? void 0 : settings.attachmentExtensions) != null ? _i : "png,jpg,jpeg,gif,webp",
+          onChangeText: (t) => {
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { attachmentExtensions: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Image storage quota (GB)"),
+        el(DInput, {
+          placeholder: "2",
+          placeholderTextColor: C.sub,
+          defaultValue: String((_j = settings == null ? void 0 : settings.imageQuotaGB) != null ? _j : 2),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseFloat(t);
+            if (!isNaN(n) && n >= 0.1 && n <= 100) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { imageQuotaGB: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Used: " + (totalSavedBytes() / 1073741824).toFixed(2) + " GB \xB7 " + Object.keys(imageIndex).length + " messages with saved images"),
+        sw("ignoreBots", "Ignore bot messages"),
+        sw("ignoreWebhooks", "Ignore webhooks"),
+        sw("ignoreSelf", "Ignore your own messages"),
+        sw("ignoreSelfEdits", "Ignore your own edits"),
+        sw("inlineEdits", "Inline edit history", "Show previous versions inside the message (Equicord Inline Edits)")
+      ),
+      el(
+        RowGroup,
+        { title: "Filters" },
+        el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel/server IDs that always get logged, overriding muted servers, categories and channels."),
+        el(DInput, {
+          placeholder: "e.g. 123456789012345678",
+          placeholderTextColor: C.sub,
+          defaultValue: (_k = settings == null ? void 0 : settings.whitelistedIds) != null ? _k : "",
+          onChangeText: (t) => {
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { whitelistedIds: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Ignored guilds \u2014 comma-separated server IDs never logged."),
+        el(DInput, {
+          placeholder: "Server IDs",
+          placeholderTextColor: C.sub,
+          defaultValue: (_l = settings == null ? void 0 : settings.ignoredGuilds) != null ? _l : "",
+          onChangeText: (t) => {
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { ignoredGuilds: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Time-based cleanup \u2014 remove entries older than this many minutes (0 = off)."),
+        el(DInput, {
+          placeholder: "0",
+          placeholderTextColor: C.sub,
+          defaultValue: String((_m = settings == null ? void 0 : settings.timeBasedCleanupMinutes) != null ? _m : 0),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n >= 0) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { timeBasedCleanupMinutes: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Maximum stored messages \u2014 the oldest are dropped first. This is the size of your archive."),
+        el(DInput, {
+          placeholder: "300",
+          placeholderTextColor: C.sub,
+          defaultValue: String(S("maxStored")),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n >= 10 && n <= 1e4) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { maxStored: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Entries shown at once in the log below \u2014 \u201CLoad more\u201D adds this many."),
+        el(DInput, {
+          placeholder: "100",
+          placeholderTextColor: C.sub,
+          defaultValue: String(S("logsPerPage")),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n >= 10 && n <= 1e3) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { logsPerPage: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        })
+      ),
+      el(
+        RowGroup,
+        { title: "Muted and DMs" },
+        sw("ignoreMutedChannels", "Ignore muted channels", "Overridden by the two always-log rules below"),
+        sw("ignoreMutedCategories", "Ignore muted categories"),
+        sw("ignoreMutedGuilds", "Ignore muted servers"),
+        sw("alwaysLogDirectMessages", "Always log DMs", "Direct messages are logged unless their ID is blacklisted"),
+        sw("alwaysLogCurrentChannel", "Always log the open channel", "Turn off if you want muted channels to stay silent")
+      ),
+      el(
+        RowGroup,
+        { title: "Ignored IDs" },
+        el(DText, null, "Comma-separated channel IDs never get logged."),
+        el(DInput, {
+          placeholder: "Channel IDs",
+          placeholderTextColor: C.sub,
+          defaultValue: (_n = settings == null ? void 0 : settings.ignoredChannels) != null ? _n : "",
+          onChangeText: (t) => {
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { ignoredChannels: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Comma-separated user IDs never get logged."),
+        el(DInput, {
+          placeholder: "User IDs",
+          placeholderTextColor: C.sub,
+          defaultValue: (_o = settings == null ? void 0 : settings.ignoredUsers) != null ? _o : "",
+          onChangeText: (t) => {
+            var _a3, _b3;
+            return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { ignoredUsers: t });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        })
+      ),
+      selectedUser ? el(
+        RowGroup,
+        { title: selectedName + " \u2014 " + userEntries.length + " entries (tap to go back)" },
         el(
-          Text,
-          { style: { paddingHorizontal: 16, color: ink.sub } },
-          (settings == null ? void 0 : settings.mode) === "whitelist" ? "Only keep the query parameters listed below." : "Strip known tracking parameters (plus any custom ones below)."
+          Pressable,
+          { onPress: () => setSelectedUser(null), style: { padding: 10 } },
+          el(Text, { style: { color: C.sub } }, "\u2190 Back to all users")
+        ),
+        ...userEntries.slice(0, 30).map(
+          (m) => el(
+            View,
+            { key: m.id, style: { paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.bg } },
+            el(Text, { style: { color: m.status === "deleted" ? C.deleted : C.edited, fontWeight: "bold", fontSize: 12 } }, (m.status === "deleted" ? "DELETED" : "EDITED") + (m.ghostPing ? " \xB7 GHOST PING" : "") + " \u2014 " + new Date(m.timestamp).toLocaleString()),
+            el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
+            m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Before: " + m.edits.join("  |  "))
+          )
+        )
+      ) : el(
+        RowGroup,
+        { title: "Users (" + userStats.length + ")" },
+        userStats.length === 0 ? el(DText, null, "No logged users yet.") : userStats.map(
+          (u) => el(
+            Pressable,
+            {
+              key: u.id,
+              onPress: () => setSelectedUser(u.id),
+              style: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.bg }
+            },
+            el(
+              View,
+              { style: { flex: 1 } },
+              el(Text, { style: { color: C.text, fontSize: 15 } }, u.name),
+              el(Text, { style: { color: C.sub, fontSize: 12 } }, u.deleted + " deleted \xB7 " + u.edited + " edited" + (u.ghosts > 0 ? " \xB7 " + u.ghosts + " ghost pings" : ""))
+            ),
+            el(Text, { style: { color: u.deleted > 0 ? C.deleted : C.sub, fontWeight: "bold" } }, String(u.total))
+          )
         )
       ),
       el(
         RowGroup,
-        { title: (settings == null ? void 0 : settings.mode) === "whitelist" ? "Whitelisted parameters" : "Extra blacklisted parameters" },
-        el((_f = (_e = D == null ? void 0 : D.TextInput) != null ? _e : D == null ? void 0 : D.TextField) != null ? _f : TextInput, {
-          placeholder: (settings == null ? void 0 : settings.mode) === "whitelist" ? "ref, q, \u2026" : "my_param, another_one, \u2026",
-          defaultValue: (settings == null ? void 0 : settings.mode) === "whitelist" ? (_g = settings == null ? void 0 : settings.customWhitelist) != null ? _g : "" : (_h = settings == null ? void 0 : settings.customBlacklist) != null ? _h : "",
-          onChangeText: (t) => {
-            var _a2, _b2;
-            return (_b2 = (_a2 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a2.set) == null ? void 0 : _b2.call(
-              _a2,
-              (settings == null ? void 0 : settings.mode) === "whitelist" ? { customWhitelist: t } : { customBlacklist: t }
-            );
+        { title: "Saved log (" + Math.min(visible.length, limit || pageSize) + " of " + visible.length + ")" },
+        el(
+          ScrollView,
+          { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4, flexDirection: "row", alignItems: "center" } },
+          tab("all", "All"),
+          tab("deleted", "Deleted"),
+          tab("edited", "Edited"),
+          tab("ghost", "Ghost pings"),
+          el(
+            Pressable,
+            {
+              onPress: () => {
+                var _a3, _b3;
+                return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { sortNewest: !sortNewest });
+              },
+              style: { paddingVertical: 8, paddingHorizontal: 10 }
+            },
+            el(
+              Text,
+              { style: { color: C.sub, fontWeight: "700" } },
+              sortNewest ? "Newest \u2193" : "Oldest \u2191"
+            )
+          )
+        ),
+        el(DInput, {
+          placeholder: "Search author or text\u2026",
+          placeholderTextColor: C.sub,
+          value: query,
+          onChangeText: setQuery,
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : shown.map((m) => {
+          var _a3;
+          const isDel = m.ghostPing || m.status === "deleted";
+          const statusColor = isDel ? C.deleted : C.edited;
+          return el(
+            View,
+            {
+              key: m.id,
+              style: {
+                borderLeftWidth: 3,
+                borderColor: statusColor,
+                backgroundColor: isDel ? C.deletedBg : C.editedBg,
+                borderRadius: 6,
+                padding: 10,
+                marginBottom: 8
+              }
+            },
+            el(
+              Text,
+              { style: { color: statusColor, fontWeight: "bold", fontSize: 12, marginBottom: 2 } },
+              "[" + (m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED") + "] " + m.authorTag + " \u2014 " + new Date(m.timestamp).toLocaleString()
+            ),
+            el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
+            m.attachments.length > 0 && cfg.logDeletedAttachments ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " deleted attachment(s)") : null,
+            m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + " image(s) saved to device") : null,
+            ...m.savedImages && Image ? [
+              el(
+                View,
+                { key: m.id + ":imgs", style: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 } },
+                ((_a3 = imageIndex[m.id]) != null ? _a3 : []).slice(0, 4).map(
+                  (img, i) => {
+                    var _a4;
+                    return el(Image, {
+                      key: i,
+                      source: { uri: "data:" + ((_a4 = img.mime) != null ? _a4 : "image/png") + ";base64," + readSavedImageB64(img.file) },
+                      style: { width: 72, height: 72, borderRadius: 6, marginRight: 6, marginBottom: 6, backgroundColor: C.bg },
+                      resizeMode: "cover"
+                    });
+                  }
+                )
+              )
+            ] : [],
+            ...m.edits.length > 0 && cfg.showEditDiffs ? m.edits.map(
+              (h, i) => {
+                var _a4;
+                return diffLine(String(h), String((_a4 = m.edits[i + 1]) != null ? _a4 : m.content), "diff-" + i);
+              }
+            ).filter(Boolean) : [],
+            m.edits.length > 0 && !cfg.showEditDiffs && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
+            m.status === "edited" && m.edits.length === 0 ? el(Text, { style: { color: C.sub, fontSize: 12 } }, "Edited \u2014 previous version not recorded") : null,
+            el(
+              Pressable,
+              { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
+              el(Text, { style: { color: C.sub, fontSize: 12 } }, "Delete entry")
+            )
+          );
+        }),
+        visible.length > shown.length ? el(
+          Pressable,
+          {
+            onPress: () => setLimit((limit || pageSize) + pageSize),
+            style: { padding: 10, alignItems: "center" }
           },
-          style: { padding: 8, color: ink.text, backgroundColor: ink.input, borderRadius: 8 }
-        })
+          el(
+            Text,
+            { style: { color: C.text, fontWeight: "700" } },
+            "Load " + pageSize + " more (" + (visible.length - shown.length) + " remaining)"
+          )
+        ) : null
+      ),
+      el(
+        View,
+        { style: { padding: 12 } },
+        el(
+          Pressable,
+          { onPress: () => void exportLog(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { fontWeight: "bold", color: C.text } }, "Copy log JSON to clipboard")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void importLog(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { fontWeight: "bold", color: C.text } }, "Import log JSON from clipboard (merges)")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void clearLog(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { fontWeight: "bold", color: C.deleted } }, "Clear saved log")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void clearImageCache(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { color: C.deleted } }, "Clear saved images")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void reload(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { color: C.sub } }, "Refresh list")
+        )
       )
     );
   };
 }
-function getReact() {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+var settingsChangedCb = null;
+function notifySettingsChanged() {
   try {
-    if (typeof revenge !== "undefined") {
-      const r = revenge.react;
-      if (r) return r.React || r;
-    }
-  } catch {
-  }
-  try {
-    if (typeof bunny !== "undefined") {
-      const b = bunny;
-      const r = b.React || ((_a = b.common) == null ? void 0 : _a.React) || ((_c = (_b = b.metro) == null ? void 0 : _b.common) == null ? void 0 : _c.React) || ((_e = (_d = b.api) == null ? void 0 : _d.react) == null ? void 0 : _e.React);
-      if (r) return r;
-    }
-  } catch {
-  }
-  try {
-    const r = (_i = (_f = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _f.React) != null ? _i : (_h = (_g = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _g.common) == null ? void 0 : _h.React;
-    if (r) return r;
-  } catch {
-  }
-  return null;
-}
-function getRN() {
-  var _a, _b, _c, _d, _e, _f, _g, _h;
-  try {
-    if (typeof revenge !== "undefined") {
-      const rn = (_a = revenge.react) == null ? void 0 : _a.ReactNative;
-      if (rn) return rn;
-    }
-  } catch {
-  }
-  try {
-    if (typeof bunny !== "undefined") {
-      const b = bunny;
-      const rn = b.ReactNative || ((_b = b.common) == null ? void 0 : _b.ReactNative) || ((_d = (_c = b.metro) == null ? void 0 : _c.common) == null ? void 0 : _d.ReactNative);
-      if (rn) return rn;
-    }
-  } catch {
-  }
-  try {
-    const rn = (_h = (_e = vendetta == null ? void 0 : vendetta.common) == null ? void 0 : _e.ReactNative) != null ? _h : (_g = (_f = vendetta == null ? void 0 : vendetta.metro) == null ? void 0 : _f.common) == null ? void 0 : _g.ReactNative;
-    if (rn) return rn;
-  } catch {
-  }
-  return null;
-}
-var classicDisposers = [];
-var classicStorageProxy = null;
-var classicStorageKind = null;
-function refreshClassicConfig() {
-  try {
-    const data = classicStorageKind === "vendetta" ? classicStorageProxy : classicStorageProxy == null ? void 0 : classicStorageProxy.data;
-    if (data && typeof data === "object") cfg = coerce(data.settings);
+    settingsChangedCb == null ? void 0 : settingsChangedCb();
   } catch {
   }
 }
@@ -395,98 +2378,276 @@ function classicSettingsApi() {
   return {
     use: () => ({ ...cfg }),
     set: (update) => {
+      var _a;
       try {
-        if (!classicStorageProxy || typeof classicStorageProxy !== "object") return;
-        if (classicStorageKind === "vendetta") {
-          classicStorageProxy.settings = { ...coerce(classicStorageProxy.settings), ...update };
+        if (!storageProxy || typeof storageProxy !== "object") return;
+        const data = (_a = hostData()) != null ? _a : {};
+        const settings = { ...coerceSettings(data.settings), ...update };
+        if (storageKind === "bunny") {
+          storageProxy.data = { ...data, settings };
         } else {
-          const data = classicStorageProxy.data && typeof classicStorageProxy.data === "object" ? classicStorageProxy.data : {};
-          classicStorageProxy.data = {
-            ...data,
-            settings: { ...coerce(data.settings), ...update }
-          };
+          storageProxy.settings = settings;
         }
         refreshClassicConfig();
-        settingsChangedCb == null ? void 0 : settingsChangedCb();
+        notifySettingsChanged();
       } catch {
       }
     }
   };
 }
-var settingsChangedCb = null;
-async function startClassic() {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
-  const b = typeof bunny !== "undefined" && bunny || {};
-  const v = typeof vendetta !== "undefined" ? vendetta : null;
-  const p = (_b = (_a = b.plugin) != null ? _a : v) != null ? _b : {};
-  try {
-    if (!((_c = b.plugin) == null ? void 0 : _c.createStorage) && ((_d = v == null ? void 0 : v.plugin) == null ? void 0 : _d.storage) && typeof v.plugin.storage === "object") {
-      classicStorageProxy = v.plugin.storage;
-      classicStorageKind = "vendetta";
-      if (!classicStorageProxy.settings || typeof classicStorageProxy.settings !== "object") {
-        classicStorageProxy.settings = { ...DEFAULT_SETTINGS };
-      }
-      const emitter = classicStorageProxy[Symbol.for("vendetta.storage.emitter")];
-      const off = (_e = emitter == null ? void 0 : emitter.on) == null ? void 0 : _e.call(emitter, "SET", () => {
-        try {
-          refreshClassicConfig();
-        } catch {
-        }
-      });
-      if (typeof off === "function") classicDisposers.push(off);
-      refreshClassicConfig();
-    }
-    const store = (_f = p.createStorage) == null ? void 0 : _f.call(p);
-    const promise = store == null ? void 0 : store[Symbol.for("bunny.storage.promise")];
-    if (promise && typeof promise.then === "function") await promise.catch(() => {
-    });
-    if (store && typeof store === "object") {
-      classicStorageProxy = store;
-      classicStorageKind = "bunny";
-      const data = store.data && typeof store.data === "object" ? store.data : {};
-      if (!data.settings) store.data = { ...data, settings: { ...DEFAULT_SETTINGS } };
-      refreshClassicConfig();
-      const emitter = store[Symbol.for("vendetta.storage.emitter")];
-      const off = (_g = emitter == null ? void 0 : emitter.on) == null ? void 0 : _g.call(emitter, "SET", () => {
-        try {
-          refreshClassicConfig();
-        } catch {
-        }
-      });
-      if (typeof off === "function") classicDisposers.push(off);
-    }
-  } catch (e) {
-    (_i = (_h = p.logger) == null ? void 0 : _h.error) == null ? void 0 : _i.call(_h, "[CleanUrls] classic storage unavailable, using defaults", e);
-  }
-  const flux = getFlux();
-  if (!flux || typeof flux.onFluxEventDispatched !== "function") {
-    (_k = (_j = p.logger) == null ? void 0 : _j.error) == null ? void 0 : _k.call(_j, "[CleanUrls] flux API unavailable \u2014 plugin idle this session");
-    return;
-  }
-  for (const event of ["MESSAGE_CREATE", "MESSAGE_UPDATE"]) {
+function registerFluxHandlers(flux, addCleanup) {
+  const register = (event, handler) => {
     try {
       const off = flux.onFluxEventDispatched(event, (payload) => {
         try {
-          return handlePayload(payload);
-        } catch {
-          return payload;
+          handler(payload);
+        } catch (e) {
+          hostError(event + " handler failed", e);
         }
+        return payload;
       });
-      if (typeof off === "function") classicDisposers.push(off);
-      (_m = (_l = p.logger) == null ? void 0 : _l.log) == null ? void 0 : _m.call(_l, "[CleanUrls] registered " + event);
+      if (typeof off === "function") addCleanup(off);
+      handlersRegistered++;
+      hostLog("registered " + event);
     } catch (e) {
-      (_o = (_n = p.logger) == null ? void 0 : _n.error) == null ? void 0 : _o.call(_n, "[CleanUrls] could not register " + event, e);
+      hostError("could not register " + event, e);
+    }
+  };
+  register("MESSAGE_CREATE", handleCreate);
+  register("MESSAGE_DELETE", handleDelete);
+  register("MESSAGE_DELETE_BULK", handleDeleteBulk);
+  register("MESSAGE_UPDATE", handleUpdate);
+  register("CHANNEL_SELECT", handleChannelSelect);
+}
+var lastInjectedChannel = "";
+var lastInjectedAt = 0;
+function handleChannelSelect(payload) {
+  var _a;
+  if (!cfg.enabled || !cfg.restoreDeletedInChat) return;
+  const channelId = String((_a = payload == null ? void 0 : payload.channelId) != null ? _a : "");
+  if (!channelId) return;
+  const now = Date.now();
+  if (channelId === lastInjectedChannel && now - lastInjectedAt < 1500) return;
+  lastInjectedChannel = channelId;
+  lastInjectedAt = now;
+  setTimeout(() => void reinjectChannel(channelId), 350);
+}
+async function reinjectChannel(channelId) {
+  var _a, _b;
+  try {
+    let dispatch = null;
+    const raw = getRawFluxDispatcher();
+    if (typeof (raw == null ? void 0 : raw.dispatch) === "function") dispatch = raw.dispatch.bind(raw);
+    if (!dispatch) {
+      try {
+        const metro = getMetro();
+        const rd = (_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "dispatch", "subscribe");
+        if (typeof (rd == null ? void 0 : rd.dispatch) === "function") dispatch = rd.dispatch.bind(rd);
+      } catch {
+      }
+    }
+    if (!dispatch) {
+      hostError("no raw dispatcher available for re-injection");
+      return;
+    }
+    const entries = Object.values(log).filter(
+      (m) => m.status === "deleted" && m.channelId === channelId
+    );
+    if (!entries.length) return;
+    const alreadyIn = getMessageIdsInChannel(channelId);
+    let injected = 0;
+    for (const entry of entries) {
+      if (alreadyIn.has(entry.id)) continue;
+      dispatch({
+        type: "MESSAGE_CREATE",
+        message: {
+          id: entry.id,
+          channel_id: channelId,
+          content: entry.content,
+          timestamp: new Date(entry.timestamp).toISOString(),
+          author: { id: entry.authorId, username: entry.authorTag, bot: !!entry.bot },
+          attachments: ((_b = entry.attachments) != null ? _b : []).map((u) => ({ url: u, proxy_url: u })),
+          mentions: [],
+          mention_everyone: false,
+          mention_roles: [],
+          pinned: false,
+          tts: false,
+          type: 0
+        },
+        optimisticallyPerformed: true,
+        mlReinjected: true
+      });
+      markHighlightDeleted(entry.id, channelId);
+      injected++;
+    }
+    if (injected > 0) hostLog("re-injected " + injected + " deleted message(s) into channel " + channelId);
+  } catch (e) {
+    hostError("channel re-injection failed", e);
+  }
+}
+function getMessageIdsInChannel(channelId) {
+  var _a, _b;
+  const ids = /* @__PURE__ */ new Set();
+  try {
+    const store = getMessageStore();
+    const messages = (_a = store == null ? void 0 : store.getMessages) == null ? void 0 : _a.call(store, channelId);
+    const arr = typeof (messages == null ? void 0 : messages.array) === "function" ? messages.array() : (_b = messages == null ? void 0 : messages._array) != null ? _b : [];
+    for (const m of arr) if (m == null ? void 0 : m.id) ids.add(String(m.id));
+  } catch {
+  }
+  return ids;
+}
+function getMessageStore() {
+  var _a, _b;
+  try {
+    const s = getStore("MessageStore");
+    if (s == null ? void 0 : s.getMessage) return s;
+  } catch {
+  }
+  try {
+    const metro = getMetro();
+    const byName = (_a = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _a.call(metro, "MessageStore");
+    if (byName == null ? void 0 : byName.getMessage) return byName;
+    const byProps = (_b = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _b.call(metro, "getMessage", "getMessages");
+    if (byProps == null ? void 0 : byProps.getMessage) return byProps;
+  } catch {
+  }
+  return null;
+}
+async function startNext({ cleanup, jsonStorage, logger }) {
+  apiRef = { logger };
+  cfgStorage = jsonStorage != null ? jsonStorage : null;
+  refreshConfigFromStorage();
+  if (jsonStorage) {
+    try {
+      await jsonStorage.get();
+      refreshConfigFromStorage();
+      cleanup(
+        jsonStorage.subscribe(() => {
+          refreshConfigFromStorage();
+        })
+      );
+    } catch (e) {
+      hostError("jsonStorage unavailable, using default settings", e);
     }
   }
-  (_q = (_p = p.logger) == null ? void 0 : _p.log) == null ? void 0 : _q.call(_p, "[CleanUrls] started (Revenge Classic / vendetta host)");
+  await loadLog();
+  void loadImageIndex();
+  runTimeBasedCleanup();
+  startCleanupInterval();
+  const flux = getFlux();
+  if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+    hostError("flux API unavailable \u2014 capture disabled this session");
+    toast("MessageLogger: flux unavailable", "msglogger-start-fail");
+    return;
+  }
+  handlersRegistered = 0;
+  registerFluxHandlers(flux, cleanup);
+  if (!installDeleteRewrite(getRawFluxDispatcher(), cleanup)) {
+    hostError("delete rewrite unavailable \u2014 deleted messages will not stay visible");
+  }
+  installRowPainters(cleanup);
+  installSelfDeleteBypass(cleanup);
+  cleanup(() => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    void persistLog();
+    seen.clear();
+    handlersRegistered = 0;
+    startedAt = null;
+    apiRef = null;
+  });
+  startedAt = Date.now();
+  lastStartError = null;
+  hostLog("started (Revenge Next)");
+  toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Revenge (Next)\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nImages cached: " + Object.keys(imageIndex).length + "\nIf you can read this, the new build is running.");
+}
+async function startClassic() {
+  var _a, _b, _c, _d, _e, _f;
+  const b = typeof bunny !== "undefined" && bunny || {};
+  const v = typeof vendetta !== "undefined" ? vendetta : null;
+  apiRef = { logger: (_c = (_b = (_a = b.plugin) == null ? void 0 : _a.logger) != null ? _b : v == null ? void 0 : v.logger) != null ? _c : null };
+  try {
+    if ((_d = b.plugin) == null ? void 0 : _d.createStorage) {
+      const store = b.plugin.createStorage();
+      const promise = store == null ? void 0 : store[Symbol.for("bunny.storage.promise")];
+      if (promise && typeof promise.then === "function") await promise.catch(() => {
+      });
+      if (store && typeof store === "object") {
+        storageProxy = store;
+        storageKind = "bunny";
+        const data = store.data && typeof store.data === "object" ? store.data : {};
+        if (!data.settings) store.data = { ...data, settings: { ...DEFAULT_SETTINGS } };
+        const emitter = store[Symbol.for("vendetta.storage.emitter")];
+        const off = (_e = emitter == null ? void 0 : emitter.on) == null ? void 0 : _e.call(emitter, "SET", () => {
+          try {
+            refreshClassicConfig();
+          } catch {
+          }
+        });
+        if (typeof off === "function") classicDisposers.push(off);
+      }
+    } else if (typeof vendetta !== "undefined" && ((_f = vendetta == null ? void 0 : vendetta.plugin) == null ? void 0 : _f.storage)) {
+      const store = vendetta.plugin.storage;
+      if (store && typeof store === "object") {
+        storageProxy = store;
+        storageKind = "vendetta";
+        if (!store.settings || typeof store.settings !== "object") {
+          store.settings = { ...DEFAULT_SETTINGS };
+        }
+      }
+    }
+  } catch (e) {
+    hostError("plugin storage unavailable, using default settings", e);
+  }
+  refreshClassicConfig();
+  await loadLog();
+  void loadImageIndex();
+  runTimeBasedCleanup();
+  startCleanupInterval();
+  const flux = getFlux();
+  if (!flux || typeof flux.onFluxEventDispatched !== "function") {
+    hostError("flux API unavailable \u2014 capture disabled this session");
+    toast("MessageLogger: flux unavailable", "msglogger-start-fail");
+    return;
+  }
+  handlersRegistered = 0;
+  registerFluxHandlers(flux, (off) => classicDisposers.push(off));
+  if (!installDeleteRewrite(getRawFluxDispatcher(), (off) => classicDisposers.push(off))) {
+    hostError("delete rewrite unavailable \u2014 deleted messages will not stay visible");
+  }
+  installRowPainters((off) => classicDisposers.push(off));
+  installSelfDeleteBypass((off) => classicDisposers.push(off));
+  startedAt = Date.now();
+  lastStartError = null;
+  hostLog("started (Revenge Classic / vendetta host)");
+  toast("MessageLogger " + PLUGIN_VERSION + " started", "msglogger-started");
+  alertBox("MessageLogger " + PLUGIN_VERSION, "Host: Classic / vendetta\nStorage: " + (storageKind != null ? storageKind : "none") + "\nFlux handlers: " + handlersRegistered + "/4\nRed highlights: " + (rowPaintersInstalled + " painter(s)") + "\nImages cached: " + Object.keys(imageIndex).length + "\nIf you can read this, the new build is running.");
 }
 var _SettingsComponent = null;
 function SettingsComponent(props) {
-  if (!_SettingsComponent) {
-    _SettingsComponent = makeSettingsComponent();
-  }
   if (hostKind !== "next") refreshClassicConfig();
-  return _SettingsComponent(props);
+  try {
+    if (!_SettingsComponent) _SettingsComponent = makeSettingsComponent();
+    return _SettingsComponent(props);
+  } catch (e) {
+    try {
+      const RN = getRN();
+      const React = getReact();
+      if (React && (RN == null ? void 0 : RN.Text)) {
+        return React.createElement(
+          RN.Text,
+          { style: { padding: 12 } },
+          "MessageLogger settings crashed: " + (e instanceof Error ? e.message : String(e))
+        );
+      }
+    } catch {
+    }
+    return null;
+  }
 }
 var __instance = {
   jsonStorage: {
@@ -494,53 +2655,16 @@ var __instance = {
     default: DEFAULT_SETTINGS
   },
   async start(api) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
     try {
       if (api && typeof api === "object" && (api.cleanup || api.jsonStorage)) {
         hostKind = "next";
-        const { cleanup, jsonStorage, logger } = api;
-        cfgStorage = jsonStorage != null ? jsonStorage : null;
-        refreshConfig();
-        if (jsonStorage) {
-          try {
-            await jsonStorage.get();
-            refreshConfig();
-            cleanup(jsonStorage.subscribe(() => refreshConfig()));
-          } catch (e) {
-            (_a = logger == null ? void 0 : logger.error) == null ? void 0 : _a.call(logger, "[CleanUrls] jsonStorage unavailable, using defaults", e);
-          }
-        }
-        const flux = getFlux();
-        if (!flux || typeof flux.onFluxEventDispatched !== "function") {
-          (_b = logger == null ? void 0 : logger.error) == null ? void 0 : _b.call(logger, "[CleanUrls] flux API unavailable \u2014 plugin idle this session");
-          return;
-        }
-        for (const event of ["MESSAGE_CREATE", "MESSAGE_UPDATE"]) {
-          try {
-            cleanup(
-              flux.onFluxEventDispatched(event, (payload) => {
-                try {
-                  return handlePayload(payload);
-                } catch {
-                  return payload;
-                }
-              })
-            );
-            (_c = logger == null ? void 0 : logger.log) == null ? void 0 : _c.call(logger, "[CleanUrls] registered " + event);
-          } catch (e) {
-            (_d = logger == null ? void 0 : logger.error) == null ? void 0 : _d.call(logger, "[CleanUrls] could not register " + event, e);
-          }
-        }
-        (_e = logger == null ? void 0 : logger.log) == null ? void 0 : _e.call(logger, "[CleanUrls] started (Revenge Next)");
+        await startNext(api);
       } else {
         hostKind = "classic";
         await startClassic();
       }
     } catch (e) {
-      try {
-        (_h = (_g = typeof bunny !== "undefined" ? (_f = bunny.plugin) == null ? void 0 : _f.logger : null) == null ? void 0 : _g.error) == null ? void 0 : _h.call(_g, "[CleanUrls] start failed", e);
-      } catch {
-      }
+      hostError("start failed", e);
     }
   },
   stop() {
@@ -551,6 +2675,16 @@ var __instance = {
       } catch {
       }
     }
+    deletedMessageMap.clear();
+    editedMessageMap.clear();
+    highlightCreates.clear();
+    highlightEdits.clear();
+    manualDeletes.clear();
+    imageQueue.length = 0;
+    stopCleanupInterval();
+    rowPaintersInstalled = 0;
+    handlersRegistered = 0;
+    startedAt = null;
   },
   SettingsComponent
 };
