@@ -10,7 +10,7 @@
         "description": "Message logger with searchable deleted/edited history, edit diffs, ghost pings, muted-channel filters, image caching and import/export",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.7.1",
+    "version": "1.7.2",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }
