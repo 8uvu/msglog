@@ -1,0 +1,30 @@
+{
+    "format": 1,
+    "name": "Clean URLs",
+    "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
+    "plugins": {
+        "dev.8uvu.clean-urls": {
+            "name": "Clean URLs",
+            "description": "Strips tracking parameters (utm_*, fbclid, gclid, igshid, ...) from links in messages, with blacklist and whitelist modes.",
+            "author": "8uvu",
+            "channels": {
+                "latest": "1.0.3"
+            },
+            "versions": {
+                "1.0.3": {
+                    "url": "https://8uvu.github.io/msglog/pool/b69f98f51fba@1.0.3.zip",
+                    "sha256": "4f29f5d48d84a7a5679db7c914a62e799c00565f4e93f43384ae9f4402e867a7",
+                    "size": 6205,
+                    "dependencies": {
+                        "revenge.api": {
+                            "version": "*"
+                        },
+                        "discord": {
+                            "version": "*"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

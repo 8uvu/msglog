@@ -1,0 +1,30 @@
+{
+    "format": 1,
+    "name": "Quick Check",
+    "description": "Diagnostic: pops a native Alert with your device's full host diagnosis (React, flux dispatcher, stores, file module) the moment the plugin is enabled.",
+    "plugins": {
+        "dev.8uvu.quick-check": {
+            "name": "Quick Check",
+            "description": "Diagnostic: pops a native Alert with your device's full host diagnosis (React, flux dispatcher, stores, file module) the moment the plugin is enabled.",
+            "author": "8uvu",
+            "channels": {
+                "latest": "1.0.1"
+            },
+            "versions": {
+                "1.0.1": {
+                    "url": "https://8uvu.github.io/msglog/pool/93b180993c97@1.0.1.zip",
+                    "sha256": "f8a41c03cda9d16dbe1bc8e570be3799d29e56f36214af7361b94389b77cabac",
+                    "size": 3345,
+                    "dependencies": {
+                        "revenge.api": {
+                            "version": "*"
+                        },
+                        "discord": {
+                            "version": "*"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
