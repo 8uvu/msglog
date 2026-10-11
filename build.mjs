@@ -25,6 +25,46 @@ const BASE_URL = "https://8uvu.github.io/msglog";
 // it must not be left to whichever directory readdir happens to return first.
 const ROOT_PLUGIN_ID = "dev.8uvu.message-logger";
 
+// fflate stamps every entry with the current *local* time, so the same source
+// produced a different archive — and therefore a different sha256 in
+// index.json — on every build, on every machine, in every timezone. That made
+// the hash unverifiable and let a published artifact diverge from the one that
+// was tested without anyone noticing, so pin the DOS timestamp fields here.
+//
+// The archive's own structure is walked (end-of-central-directory record, then
+// each central directory entry and the local header it points at) instead of
+// scanning for signatures: compressed data may contain any byte sequence.
+const DOS_TIME = 0; // 00:00:00
+const DOS_DATE = (1 << 5) | 1; // 1980-01-01 (year 0, month 1, day 1)
+
+function reproducibleZip(entries) {
+    const bytes = Uint8Array.from(zipSync(entries));
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= 0; i--) {
+        if (view.getUint32(i, true) === 0x06054b50) {
+            eocd = i;
+            break;
+        }
+    }
+    if (eocd < 0) throw new Error("zip: no end-of-central-directory record");
+
+    const entriesCount = view.getUint16(eocd + 10, true);
+    let cd = view.getUint32(eocd + 16, true);
+    for (let i = 0; i < entriesCount; i++) {
+        if (view.getUint32(cd, true) !== 0x02014b50) throw new Error("zip: bad central directory entry");
+        view.setUint16(cd + 12, DOS_TIME, true);
+        view.setUint16(cd + 14, DOS_DATE, true);
+        const local = view.getUint32(cd + 42, true);
+        if (view.getUint32(local, true) !== 0x04034b50) throw new Error("zip: bad local file header");
+        view.setUint16(local + 10, DOS_TIME, true);
+        view.setUint16(local + 12, DOS_DATE, true);
+        cd += 46 + view.getUint16(cd + 28, true) + view.getUint16(cd + 30, true) + view.getUint16(cd + 32, true);
+    }
+    return Buffer.from(bytes);
+}
+
 const artifacts = [];
 const plugins = [];
 
@@ -103,7 +143,7 @@ for (let plug of await readdir("./plugins", { withFileTypes: true })) {
     };
 
     const zipName = `${id}@${version}.zip`;
-    const zip = zipSync({
+    const zip = reproducibleZip({
         "manifest.json": strToU8(JSON.stringify(manifest, null, 4)),
         [script]: bundleBytes,
     });

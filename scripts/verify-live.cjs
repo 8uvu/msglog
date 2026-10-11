@@ -13,6 +13,7 @@
 const { createHash } = require('node:crypto');
 const { readFileSync, existsSync } = require('node:fs');
 const { join } = require('node:path');
+const { unzipSync } = require('fflate');
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback = null) => {
@@ -45,6 +46,17 @@ async function get(path, bust) {
     return Buffer.from(await response.arrayBuffer());
 }
 
+// The folder-URL install for a plugin: the manifest the host publishes and the
+// bundle users actually run. This is what "the same code" is measured against.
+function localInstall(id) {
+    const dir = join(DIST, id);
+    const bundlePath = join(dir, 'index.js');
+    const manifestPath = join(dir, 'manifest.json');
+    if (!existsSync(bundlePath) || !existsSync(manifestPath)) return null;
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    return { bundlePath, script: manifest.dist?.script ?? manifest.main ?? 'index.js' };
+}
+
 function targets() {
     const out = [];
     for (const [id, plugin] of Object.entries(local.plugins ?? {})) {
@@ -70,41 +82,77 @@ async function check(attempt) {
 
     for (const { id, version, entry, latest } of targets()) {
         const label = `${id}@${version}`;
+        // There are two different questions here, and conflating them made this
+        // checker cry wolf on its first run. "Is the host serving what its own
+        // index promises?" must hold for every artifact; "is it serving the
+        // bytes this worktree built?" only makes sense for the version being
+        // released (older pool entries came from an earlier toolchain, before
+        // the zip timestamps were pinned). And a file the host has not replaced
+        // yet is propagation, not a failure.
+        const isTarget = ONLY_VERSION ? version === ONLY_VERSION : version === latest;
+        const published = liveIndex?.plugins?.[id] ?? null;
+        const publishedEntry = published?.versions?.[version] ?? null;
 
-        if (liveIndex) {
-            const published = liveIndex.plugins?.[id];
-            if (!published) problems.push(`${label}: the published index does not list ${id}`);
-            else {
-                if (!(version in (published.versions ?? {}))) pending.push(`${label}: not in the published index yet`);
-                else {
-                    const entryLive = published.versions[version];
-                    if (entryLive.sha256 !== entry.sha256 || entryLive.size !== entry.size) {
-                        problems.push(`${label}: published index entry differs from the built one (${entryLive.sha256}/${entryLive.size} vs ${entry.sha256}/${entry.size})`);
-                    }
-                }
-                if (!ONLY_VERSION && version === latest && published.channels?.latest !== version) {
-                    pending.push(`${label}: published latest is ${published.channels?.latest}`);
-                }
-            }
+        if (liveIndex && !published) {
+            problems.push(`${label}: the published index does not list ${id}`);
+        } else if (liveIndex && !publishedEntry) {
+            pending.push(`${label}: not in the published index yet`);
+        } else if (publishedEntry && ONLY_VERSION && (publishedEntry.sha256 !== entry.sha256 || publishedEntry.size !== entry.size)) {
+            problems.push(
+                `${label}: the published artifact is not the one built here (${String(publishedEntry.sha256).slice(0, 12)}…/${publishedEntry.size} vs ${entry.sha256.slice(0, 12)}…/${entry.size})`,
+            );
+        }
+        if (published && !ONLY_VERSION && version === latest && published.channels?.latest !== version) {
+            pending.push(`${label}: published latest is ${published.channels?.latest}`);
         }
 
+        const local = localInstall(id);
         try {
             const zip = await get(`/pool/${label}.zip`, attempt > 0);
-            if (zip.length !== entry.size) problems.push(`${label}: served zip is ${zip.length} bytes, built zip is ${entry.size}`);
-            else if (sha256(zip) !== entry.sha256) problems.push(`${label}: served zip hash ${sha256(zip).slice(0, 12)}… does not match the built hash`);
+            const served = sha256(zip);
+            if (publishedEntry && (served !== publishedEntry.sha256 || zip.length !== publishedEntry.size)) {
+                problems.push(
+                    `${label}: the host serves ${served.slice(0, 12)}… (${zip.length} bytes) while its own index advertises ${String(publishedEntry.sha256).slice(0, 12)}… (${publishedEntry.size} bytes)`,
+                );
+            } else if (!publishedEntry && served !== entry.sha256) {
+                pending.push(`${label}: served zip is not the built zip yet`);
+            }
+            if (!local) continue;
+            if (ONLY_VERSION) {
+                // Releasing: the artifact must be byte-for-byte the one built and
+                // verified here, which the pinned zip timestamps now guarantee.
+                if (served !== entry.sha256 || zip.length !== entry.size) {
+                    problems.push(`${label}: the released artifact is not the one built here (${served.slice(0, 12)}… vs ${entry.sha256.slice(0, 12)}…)`);
+                }
+            } else if (isTarget) {
+                // Otherwise compare the code inside the archive, which is stable
+                // across container metadata (zips published before the
+                // timestamps were pinned still hold the right bundle).
+                const inner = Buffer.from(unzipSync(new Uint8Array(zip))[local.script] ?? new Uint8Array());
+                if (sha256(inner) !== sha256(readFileSync(local.bundlePath))) {
+                    problems.push(`${label}: the published archive contains different code than this build`);
+                }
+            }
         } catch (error) {
             pending.push(`${label}: zip not served yet (${error.message})`);
         }
 
-        const localBundle = join(DIST, id, 'index.js');
-        const localManifest = join(DIST, id, 'manifest.json');
-        if (!existsSync(localBundle) || !existsSync(localManifest)) continue;
+        if (!isTarget) continue;
+
+        // The published manifest advertises the hash of the bundle it was built
+        // with, so it is the honest reference for a host that has published
+        // half a deploy: a mismatch with its own hash is broken, a mismatch
+        // with our local build is just the host not having caught up.
+        if (!local) continue;
         try {
             const servedManifest = JSON.parse((await get(`/${id}/manifest.json`, attempt > 0)).toString('utf8'));
-            if (servedManifest.version !== version) pending.push(`${label}: folder manifest still ${servedManifest.version}`);
-            const servedBundle = await get(`/${id}/index.js`, attempt > 0);
-            if (sha256(servedBundle) !== sha256(readFileSync(localBundle))) {
-                problems.push(`${label}: folder-URL bundle does not match the built bundle`);
+            const servedHash = sha256(await get(`/${id}/index.js`, attempt > 0));
+            if (servedManifest.hash && servedManifest.hash !== servedHash) {
+                problems.push(`${label}: ${id}/manifest.json advertises hash ${String(servedManifest.hash).slice(0, 12)}… but serves ${servedHash.slice(0, 12)}…`);
+            } else if (servedManifest.version !== version) {
+                pending.push(`${label}: folder install still serves ${servedManifest.version}`);
+            } else if (servedHash !== sha256(readFileSync(local.bundlePath))) {
+                pending.push(`${label}: folder-URL bundle is not the built bundle yet`);
             }
         } catch (error) {
             pending.push(`${label}: folder install not served yet (${error.message})`);
@@ -115,10 +163,14 @@ async function check(attempt) {
     if (!ONLY_ID) {
         try {
             const rootManifest = JSON.parse((await get('/manifest.json', attempt > 0)).toString('utf8'));
-            const rootLocal = JSON.parse(readFileSync(join(DIST, 'manifest.json'), 'utf8'));
-            if (rootManifest.id !== rootLocal.id) problems.push(`root install serves ${rootManifest.id}, built ${rootLocal.id}`);
-            const rootBundle = await get('/index.js', attempt > 0);
-            if (sha256(rootBundle) !== sha256(readFileSync(join(DIST, 'index.js')))) problems.push('root index.js does not match the built bundle');
+            const rootHash = sha256(await get('/index.js', attempt > 0));
+            if (rootManifest.hash && rootManifest.hash !== rootHash) {
+                problems.push(`root manifest.json advertises hash ${String(rootManifest.hash).slice(0, 12)}… but serves ${rootHash.slice(0, 12)}…`);
+            } else {
+                const rootLocal = JSON.parse(readFileSync(join(DIST, 'manifest.json'), 'utf8'));
+                if (rootManifest.id !== rootLocal.id) pending.push(`root install still serves ${rootManifest.id}`);
+                else if (rootHash !== sha256(readFileSync(join(DIST, 'index.js')))) pending.push('root index.js is not the built bundle yet');
+            }
         } catch (error) {
             pending.push(`root install not served yet (${error.message})`);
         }
