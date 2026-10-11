@@ -102,16 +102,24 @@ console.log(`bumped ${manifestPath.slice(root.length + 1).replace(/\\/g, '/')} t
 let entryOriginal = null;
 let entryBumped = false;
 if (entryFile) {
+    const relative = entryFile.slice(root.length + 1).replace(/\\/g, '/');
     const source = readFileSync(entryFile, 'utf8');
-    const stamped = source.replace(/^(const PLUGIN_VERSION = ')${current}(';)$/m, `$1${next}$2`);
-    if (stamped !== source) {
+    // Several plugins report their own version in a toast or the debug page,
+    // which is how a user answers "did the new build actually load?". Keep it in
+    // step with the manifest or that answer is a lie. (Built with a RegExp, not
+    // a regex literal: `${...}` is not interpolated inside /slashes/, which is
+    // how a release once shipped a stale self-reported version.)
+    const declaration = /const PLUGIN_VERSION = '([^']*)'/;
+    const found = declaration.exec(source);
+    if (!found) {
+        console.warn(`note: no PLUGIN_VERSION constant in ${relative} — bump it by hand if the plugin reports a version`);
+    } else {
+        if (found[1] !== current) console.warn(`note: ${relative} said ${found[1]} while the manifest said ${current}`);
         entryOriginal = source;
         entryBumped = true;
-        writeFileSync(entryFile, stamped);
+        writeFileSync(entryFile, source.replace(declaration, `const PLUGIN_VERSION = '${next}'`));
         touched.push(entryFile);
-        console.log(`bumped PLUGIN_VERSION in ${entryFile.slice(root.length + 1).replace(/\\/g, '/')}`);
-    } else if (source.includes(`'${current}'`)) {
-        console.warn(`note: ${entryFile.slice(root.length + 1)} mentions ${current} outside PLUGIN_VERSION — check it by hand`);
+        console.log(`bumped PLUGIN_VERSION to ${next} in ${relative}`);
     }
 }
 
@@ -127,6 +135,17 @@ if (!existsSync(zipPath)) {
     restoreDryRun();
     console.error(`build did not produce dist/pool/${id}@${next}.zip`);
     process.exit(1);
+}
+if (entryBumped) {
+    // Prove the self-reported version actually made it into the bundle the host
+    // will evaluate — a stale one is invisible in every other check.
+    const built = readFileSync(join(root, 'dist', id, 'index.js'), 'utf8');
+    if (!new RegExp(`PLUGIN_VERSION = ["']${next}["']`).test(built)) {
+        restoreDryRun();
+        console.error(`the built bundle does not report ${next} — the version constant did not survive the build`);
+        process.exit(1);
+    }
+    console.log(`verified the built bundle reports ${next}`);
 }
 
 // ---- 4. Every check --------------------------------------------------------
