@@ -5,8 +5,15 @@ Custom Revenge plugins by 8uvu.
 ## Plugins
 
 ### Message Logger
-Saves deleted and edited messages to a persistent on-device log, flags ghost
-pings, and ships a searchable viewer with export.
+Saves deleted and edited messages to a persistent on-device log, keeps deleted
+rows visible in chat (red text or a red overlay, Equicord-style), shows an
+inline edit history with optional word diffs, flags ghost pings, caches deleted
+attachments, and ships a searchable viewer with sorting, paging and
+import/export.
+
+Filters: ignored users/channels/servers, whitelists, muted servers, categories
+and channels, "always log DMs" / "always log the open channel", bot / webhook /
+self ignores, a message cap and time-based cleanup.
 
 **Install:** Add this plugin URL in Revenge (Settings > Revenge > Plugins):
 ```

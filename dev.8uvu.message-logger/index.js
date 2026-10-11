@@ -26,7 +26,7 @@ var hostKind = "next";
 var startedAt = null;
 var lastStartError = null;
 var handlersRegistered = 0;
-var PLUGIN_VERSION = "1.6.8";
+var PLUGIN_VERSION = "1.7.0";
 var deletedMessageMap = /* @__PURE__ */ new Map();
 var editedMessageMap = /* @__PURE__ */ new Map();
 var manualDeletes = /* @__PURE__ */ new Set();
@@ -40,18 +40,29 @@ var DEFAULT_SETTINGS = {
   keepSelfDeletes: true,
   deletedInfo: true,
   inlineEdits: true,
+  deleteStyle: "text",
+  showEditDiffs: false,
+  separatedDiffs: false,
+  logDeletedAttachments: true,
   ghostPings: true,
   colorHighlights: true,
   ignoreBots: true,
   ignoreWebhooks: false,
   ignoreSelf: false,
   ignoreSelfEdits: false,
+  alwaysLogDirectMessages: true,
+  alwaysLogCurrentChannel: true,
+  ignoreMutedGuilds: false,
+  ignoreMutedCategories: false,
+  ignoreMutedChannels: false,
   saveImages: true,
   imageQuotaGB: 2,
   attachmentSizeLimitMB: 100,
   attachmentExtensions: "png,jpg,jpeg,gif,webp",
   timeBasedCleanupMinutes: 0,
   maxStored: 300,
+  sortNewest: true,
+  logsPerPage: 100,
   ignoredChannels: "",
   ignoredUsers: "",
   ignoredGuilds: "",
@@ -316,6 +327,10 @@ function coerceSettings(raw) {
     ghostPings: c.ghostPings !== false,
     colorHighlights: c.colorHighlights !== false,
     inlineEdits: c.inlineEdits !== false,
+    deleteStyle: c.deleteStyle === "overlay" ? "overlay" : "text",
+    showEditDiffs: !!c.showEditDiffs,
+    separatedDiffs: !!c.separatedDiffs,
+    logDeletedAttachments: c.logDeletedAttachments !== false,
     saveImages: c.saveImages !== false,
     imageQuotaGB: typeof c.imageQuotaGB === "number" && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100 ? c.imageQuotaGB : DEFAULT_SETTINGS.imageQuotaGB,
     attachmentSizeLimitMB: typeof c.attachmentSizeLimitMB === "number" && c.attachmentSizeLimitMB >= 1 && c.attachmentSizeLimitMB <= 1024 ? c.attachmentSizeLimitMB : DEFAULT_SETTINGS.attachmentSizeLimitMB,
@@ -325,6 +340,13 @@ function coerceSettings(raw) {
     ignoreWebhooks: !!c.ignoreWebhooks,
     ignoreSelf: !!c.ignoreSelf,
     ignoreSelfEdits: !!c.ignoreSelfEdits,
+    alwaysLogDirectMessages: c.alwaysLogDirectMessages !== false,
+    alwaysLogCurrentChannel: c.alwaysLogCurrentChannel !== false,
+    ignoreMutedGuilds: !!c.ignoreMutedGuilds,
+    ignoreMutedCategories: !!c.ignoreMutedCategories,
+    ignoreMutedChannels: !!c.ignoreMutedChannels,
+    sortNewest: c.sortNewest !== false,
+    logsPerPage: typeof c.logsPerPage === "number" && c.logsPerPage >= 10 && c.logsPerPage <= 1e3 ? Math.floor(c.logsPerPage) : DEFAULT_SETTINGS.logsPerPage,
     maxStored: typeof c.maxStored === "number" && c.maxStored >= 10 && c.maxStored <= 1e4 ? Math.floor(c.maxStored) : DEFAULT_SETTINGS.maxStored,
     ignoredChannels: typeof c.ignoredChannels === "string" ? c.ignoredChannels : "",
     ignoredUsers: typeof c.ignoredUsers === "string" ? c.ignoredUsers : "",
@@ -553,11 +575,20 @@ function takeSkipped(id) {
   skippedIds.delete(id);
   return true;
 }
-function gateMessage(message, snap) {
-  const id = snap.id;
-  const channelId = snap.channelId;
-  if (inList(id, cfg.whitelistedIds) || inList(channelId, cfg.whitelistedIds)) return true;
-  if (inList(id, cfg.ignoredUsers) || inList(channelId, cfg.ignoredChannels) || inList(snap.guildId, cfg.ignoredGuilds)) return false;
+function gateMessage(_message, snap) {
+  var _a, _b, _c;
+  const userId = String((_a = snap == null ? void 0 : snap.authorId) != null ? _a : "");
+  const channelId = String((_b = snap == null ? void 0 : snap.channelId) != null ? _b : "");
+  const guildId = String((_c = snap == null ? void 0 : snap.guildId) != null ? _c : "") || channelGuildIdFor(channelId);
+  if (inList(userId, cfg.ignoredUsers) || inList(channelId, cfg.ignoredChannels) || inList(guildId, cfg.ignoredGuilds))
+    return false;
+  if (inList(userId, cfg.whitelistedIds) || inList(channelId, cfg.whitelistedIds) || inList(guildId, cfg.whitelistedIds))
+    return true;
+  if (cfg.alwaysLogDirectMessages && channelId && isDmChannel(channelId)) return true;
+  if (cfg.alwaysLogCurrentChannel && channelId && channelId === currentChannelId()) return true;
+  if (cfg.ignoreMutedChannels && isChannelMuted(channelId)) return false;
+  if (cfg.ignoreMutedCategories && isCategoryMuted(channelId)) return false;
+  if (cfg.ignoreMutedGuilds && isGuildMuted(guildId)) return false;
   return true;
 }
 function toast(content, key) {
@@ -625,41 +656,23 @@ function alertBox(title, msg) {
   }
 }
 function getChannelStore() {
-  var _a, _b, _c, _d;
-  try {
-    if (typeof revenge !== "undefined") {
-      const s = (_b = (_a = revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores;
-      if (s == null ? void 0 : s.ChannelStore) return s.ChannelStore;
-    }
-  } catch {
-  }
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const found = getStore("ChannelStore");
+  if (found == null ? void 0 : found.getChannel) return found;
   try {
     const b = typeof bunny !== "undefined" ? bunny : null;
     const metro = b == null ? void 0 : b.metro;
-    for (const c of [(_c = b == null ? void 0 : b.common) == null ? void 0 : _c.ChannelStore, (_d = metro == null ? void 0 : metro.common) == null ? void 0 : _d.ChannelStore]) {
-      if (c) return c;
+    for (const c of [(_a = b == null ? void 0 : b.common) == null ? void 0 : _a.ChannelStore, (_b = metro == null ? void 0 : metro.common) == null ? void 0 : _b.ChannelStore]) {
+      if (c == null ? void 0 : c.getChannel) return c;
     }
-    if (metro == null ? void 0 : metro.findByStoreName) {
-      const m = metro.findByStoreName("ChannelStore");
-      if (m == null ? void 0 : m.getChannel) return m;
-    }
-    if (metro == null ? void 0 : metro.findByProps) {
-      const m = metro.findByProps("getChannel");
-      if (m == null ? void 0 : m.getChannel) return m;
-    }
+    const m = (_c = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _c.call(metro, "getChannel");
+    if (m == null ? void 0 : m.getChannel) return m;
   } catch {
   }
   try {
     const v = typeof vendetta !== "undefined" ? vendetta : null;
-    const metro = v == null ? void 0 : v.metro;
-    if (metro == null ? void 0 : metro.findByStoreName) {
-      const m = metro.findByStoreName("ChannelStore");
-      if (m == null ? void 0 : m.getChannel) return m;
-    }
-    if (metro == null ? void 0 : metro.findByProps) {
-      const m = metro.findByProps("getChannel");
-      if (m == null ? void 0 : m.getChannel) return m;
-    }
+    const m = (_i = (_e = (_d = v == null ? void 0 : v.metro) == null ? void 0 : _d.findByProps) == null ? void 0 : _e.call(_d, "getChannel")) != null ? _i : (_h = (_g = (_f = v == null ? void 0 : v.common) == null ? void 0 : _f.metro) == null ? void 0 : _g.findByProps) == null ? void 0 : _h.call(_g, "getChannel");
+    if (m == null ? void 0 : m.getChannel) return m;
   } catch {
   }
   return null;
@@ -676,6 +689,168 @@ function toastGhostPing(entry) {
     "Ghost ping by " + entry.authorTag + " in " + where + ": " + entry.content.slice(0, 120),
     "msglogger-ghostping-" + entry.id
   );
+}
+function getStore(name) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
+  try {
+    const s = typeof revenge !== "undefined" && ((_b = (_a = revenge == null ? void 0 : revenge.discord) == null ? void 0 : _a.flux) == null ? void 0 : _b.Stores) || null;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const b = typeof bunny !== "undefined" ? bunny : null;
+    const s = (_h = (_g = (_d = (_c = b == null ? void 0 : b.api) == null ? void 0 : _c.flux) == null ? void 0 : _d.stores) != null ? _g : (_f = (_e = b == null ? void 0 : b.metro) == null ? void 0 : _e.common) == null ? void 0 : _f.Stores) != null ? _h : null;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const v = typeof vendetta !== "undefined" ? vendetta : null;
+    const s = (_m = (_l = (_j = (_i = v == null ? void 0 : v.metro) == null ? void 0 : _i.common) == null ? void 0 : _j.Stores) != null ? _l : (_k = v == null ? void 0 : v.common) == null ? void 0 : _k.Stores) != null ? _m : null;
+    if (s == null ? void 0 : s[name]) return s[name];
+  } catch {
+  }
+  try {
+    const metro = getMetro();
+    const m = (_n = metro == null ? void 0 : metro.findByStoreName) == null ? void 0 : _n.call(metro, name);
+    if (m) return m;
+  } catch {
+  }
+  return null;
+}
+function channelGuildIdFor(channelId) {
+  var _a, _b, _c, _d;
+  try {
+    const ch = (_b = (_a = getChannelStore()) == null ? void 0 : _a.getChannel) == null ? void 0 : _b.call(_a, channelId);
+    return String((_d = (_c = ch == null ? void 0 : ch.guild_id) != null ? _c : ch == null ? void 0 : ch.guildId) != null ? _d : "");
+  } catch {
+  }
+  return "";
+}
+function isDmChannel(channelId) {
+  var _a, _b, _c;
+  if (!channelId) return false;
+  try {
+    const type = (_c = (_b = (_a = getChannelStore()) == null ? void 0 : _a.getChannel) == null ? void 0 : _b.call(_a, channelId)) == null ? void 0 : _c.type;
+    return type === 1 || type === 3;
+  } catch {
+  }
+  return false;
+}
+function currentChannelId() {
+  var _a, _b, _c, _d;
+  try {
+    const s = getStore("SelectedChannelStore");
+    return String((_d = (_c = (_a = s == null ? void 0 : s.getChannelId) == null ? void 0 : _a.call(s)) != null ? _c : (_b = s == null ? void 0 : s.getMostRecentSelectedTextChannelId) == null ? void 0 : _b.call(s)) != null ? _d : "");
+  } catch {
+  }
+  return "";
+}
+function isChannelMuted(channelId) {
+  var _a, _b;
+  if (!channelId) return false;
+  try {
+    return !!((_b = (_a = getStore("UserGuildSettingsStore")) == null ? void 0 : _a.isChannelMuted) == null ? void 0 : _b.call(_a, channelId));
+  } catch {
+  }
+  return false;
+}
+function isCategoryMuted(channelId) {
+  var _a, _b;
+  if (!channelId) return false;
+  try {
+    return !!((_b = (_a = getStore("UserGuildSettingsStore")) == null ? void 0 : _a.isCategoryMuted) == null ? void 0 : _b.call(_a, channelId));
+  } catch {
+  }
+  return false;
+}
+function isGuildMuted(guildId) {
+  var _a, _b;
+  if (!guildId) return false;
+  try {
+    return !!((_b = (_a = getStore("UserGuildSettingsStore")) == null ? void 0 : _a.isGuildMuted) == null ? void 0 : _b.call(_a, guildId));
+  } catch {
+  }
+  return false;
+}
+function tokenize(text) {
+  var _a;
+  return (_a = String(text != null ? text : "").match(/\s+|[^\s]+/g)) != null ? _a : [];
+}
+function diffWords(before, after) {
+  const a = tokenize(before);
+  const b = tokenize(after);
+  if (!a.length || !b.length || a.length * b.length > 4e4) {
+    if (String(before != null ? before : "") === String(after != null ? after : "")) return [{ type: "same", text: String(after != null ? after : "") }];
+    return [
+      { type: "removed", text: String(before != null ? before : "") },
+      { type: "added", text: String(after != null ? after : "") }
+    ];
+  }
+  const rows = [];
+  for (let i2 = 0; i2 <= a.length; i2++) rows.push(new Uint32Array(b.length + 1));
+  for (let i2 = a.length - 1; i2 >= 0; i2--) {
+    for (let j2 = b.length - 1; j2 >= 0; j2--) {
+      rows[i2][j2] = a[i2] === b[j2] ? rows[i2 + 1][j2 + 1] + 1 : Math.max(rows[i2 + 1][j2], rows[i2][j2 + 1]);
+    }
+  }
+  const parts = [];
+  const push = (type, text) => {
+    if (!text) return;
+    const last = parts[parts.length - 1];
+    if (last && last.type === type) last.text += text;
+    else parts.push({ type, text });
+  };
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      push("same", a[i]);
+      i++;
+      j++;
+    } else if (rows[i + 1][j] >= rows[i][j + 1]) {
+      push("removed", a[i]);
+      i++;
+    } else {
+      push("added", b[j]);
+      j++;
+    }
+  }
+  while (i < a.length) {
+    push("removed", a[i]);
+    i++;
+  }
+  while (j < b.length) {
+    push("added", b[j]);
+    j++;
+  }
+  return parts;
+}
+function diffToMarkdown(parts) {
+  let out = "";
+  for (const part of parts) {
+    if (part.type === "same") {
+      out += part.text;
+      continue;
+    }
+    const text = part.text.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    out += (part.type === "removed" ? "~~" + text + "~~" : "__" + text + "__") + " ";
+  }
+  return out.replace(/ {2,}/g, " ").trim();
+}
+function diffToSeparatedMarkdown(parts) {
+  const join = (type) => parts.filter((p) => p.type === type).map((p) => p.text).join("").replace(/\s+/g, " ").trim();
+  const removed = join("removed");
+  const added = join("added");
+  const lines = [];
+  if (removed) lines.push("~~" + removed + "~~");
+  if (added) lines.push("__" + added + "__");
+  return lines.join("\n") || "(no text change)";
+}
+function changeLine(before, after) {
+  if (!cfg.showEditDiffs) return before;
+  const parts = diffWords(before, after);
+  return cfg.separatedDiffs ? diffToSeparatedMarkdown(parts) : diffToMarkdown(parts);
 }
 var IMG_DIR_NAME = "message-logger/images";
 var IMG_INDEX_FILE = "message-logger/images-index.json";
@@ -974,6 +1149,7 @@ function handleCreate(payload) {
 function handleDelete(payload) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
   if (!cfg.enabled || !cfg.logDeletes) return;
+  if (payload == null ? void 0 : payload.mlDeleted) return;
   const id = String((_c = (_b = (_a = payload == null ? void 0 : payload.message) == null ? void 0 : _a.id) != null ? _b : payload == null ? void 0 : payload.id) != null ? _c : "");
   const channelId = String((_f = (_e = (_d = payload == null ? void 0 : payload.message) == null ? void 0 : _d.channelId) != null ? _e : payload == null ? void 0 : payload.channelId) != null ? _f : "");
   if (!id || inList(channelId, cfg.ignoredChannels)) return;
@@ -1153,6 +1329,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
       try {
         const type = payload == null ? void 0 : payload.type;
         if (type === "MESSAGE_DELETE" && cfg.logDeletes) {
+          if (payload == null ? void 0 : payload.mlDeleted) return void 0;
           const id = String((_d = (_c = (_a = payload == null ? void 0 : payload.id) != null ? _a : payload == null ? void 0 : payload.messageId) != null ? _c : (_b = payload == null ? void 0 : payload.message) == null ? void 0 : _b.id) != null ? _d : "");
           const channelId = String((_j = (_i = (_g = (_e = payload == null ? void 0 : payload.channelId) != null ? _e : payload == null ? void 0 : payload.channel_id) != null ? _g : (_f = payload == null ? void 0 : payload.message) == null ? void 0 : _f.channelId) != null ? _i : (_h = payload == null ? void 0 : payload.message) == null ? void 0 : _h.channel_id) != null ? _j : "");
           if (!id || !channelId) return;
@@ -1230,7 +1407,7 @@ function installDeleteRewrite(dispatcher, addCleanup) {
   }
 }
 function paintRow(row, processColor) {
-  var _a, _b;
+  var _a, _b, _c, _d;
   const msg = row == null ? void 0 : row.message;
   if (!(msg == null ? void 0 : msg.id)) return;
   const id = String(msg.id);
@@ -1243,11 +1420,21 @@ function paintRow(row, processColor) {
     const when = cfg.deletedInfo && (entry == null ? void 0 : entry.timestamp) ? " at " + new Date(entry.timestamp).toLocaleString() : "";
     msg.edited = "(deleted" + who + when + ")";
     const red = processColor("#f04747");
-    msg.textColor = red;
-    row.backgroundHighlight = {
-      backgroundColor: processColor("#f047471f"),
-      gutterColor: red
-    };
+    if (cfg.deleteStyle === "overlay") {
+      delete msg.textColor;
+      row.backgroundHighlight = { backgroundColor: processColor("#f0474740") };
+    } else {
+      msg.textColor = red;
+      row.backgroundHighlight = {
+        backgroundColor: processColor("#f047471f"),
+        gutterColor: red
+      };
+    }
+    const taken = (_b = (_a = entry == null ? void 0 : entry.attachments) == null ? void 0 : _a.length) != null ? _b : 0;
+    if (cfg.logDeletedAttachments && taken > 0 && typeof msg.content === "string") {
+      const marker = "*(" + (taken === 1 ? "deleted attachment" : taken + " deleted attachments") + ")*";
+      if (!msg.content.includes(marker)) msg.content = msg.content + "\n" + marker;
+    }
   } else {
     delete row.backgroundHighlight;
     delete row.highlight;
@@ -1257,10 +1444,15 @@ function paintRow(row, processColor) {
     delete msg.backgroundColor;
   }
   if (cfg.inlineEdits && typeof msg.content === "string") {
-    const history = (_b = (_a = log[id]) == null ? void 0 : _a.edits) != null ? _b : [];
+    const history = (_d = (_c = log[id]) == null ? void 0 : _c.edits) != null ? _d : [];
     if (history.length) {
-      const block = history.map((h) => String(h) + " (edited)").join("\n");
-      if (!msg.content.includes(block)) {
+      const current = msg.content;
+      const versions = [...history, current];
+      const block = history.map((h, i) => {
+        var _a2;
+        return changeLine(String(h), String((_a2 = versions[i + 1]) != null ? _a2 : current)) + " (edited)";
+      }).join("\n");
+      if (block && !msg.content.includes(block)) {
         msg.content = block + "\n" + msg.content;
       }
     }
@@ -1416,6 +1608,7 @@ function viewerColors() {
       sub: "#4e5058",
       deleted: "#d83c3e",
       deletedBg: "rgba(216,60,62,0.10)",
+      added: "#1a7f37",
       edited: "#4e5058",
       editedBg: "transparent"
     };
@@ -1427,6 +1620,7 @@ function viewerColors() {
     sub: "#949ba4",
     deleted: "#f23f43",
     deletedBg: "rgba(242,63,67,0.14)",
+    added: "#3ba55d",
     edited: "#949ba4",
     editedBg: "transparent"
   };
@@ -1519,6 +1713,8 @@ function makeSettingsComponent() {
     const [query, setQuery] = React.useState("");
     const [refreshTick, setRefreshTick] = React.useState(0);
     const [selectedUser, setSelectedUser] = React.useState(null);
+    const [limit, setLimit] = React.useState(0);
+    const S = (key) => (settings == null ? void 0 : settings[key]) === void 0 ? DEFAULT_SETTINGS[key] : settings[key];
     React.useEffect(() => {
       settingsChangedCb = () => setRefreshTick((t) => t + 1);
       return () => {
@@ -1541,7 +1737,13 @@ function makeSettingsComponent() {
     React.useEffect(() => {
       void reload();
     }, [refreshTick]);
-    const visible = entries.filter((m) => {
+    React.useEffect(() => {
+      setLimit(0);
+    }, [filter, query]);
+    const sortNewest = S("sortNewest") !== false;
+    const ordered = sortNewest ? entries : [...entries].reverse();
+    const pageSize = Math.max(10, Math.min(1e3, Number(S("logsPerPage")) || 100));
+    const visible = ordered.filter((m) => {
       if (filter === "deleted" && m.status !== "deleted") return false;
       if (filter === "edited" && m.status !== "edited") return false;
       if (filter === "ghost" && !m.ghostPing) return false;
@@ -1550,6 +1752,7 @@ function makeSettingsComponent() {
         return false;
       return true;
     });
+    const shown = visible.slice(0, limit || pageSize);
     const removeEntry = async (id) => {
       try {
         delete log[id];
@@ -1566,6 +1769,35 @@ function makeSettingsComponent() {
         toast("Log copied to clipboard", "msglogger-export");
       } catch {
         toast("Export failed \u2014 clipboard unavailable", "msglogger-export-fail");
+      }
+    };
+    const importLog = async () => {
+      var _a3;
+      try {
+        const clip = getClipboard();
+        const raw = await ((_a3 = clip == null ? void 0 : clip.getString) == null ? void 0 : _a3.call(clip));
+        if (typeof raw !== "string" || !raw.trim()) throw new Error("clipboard empty");
+        const parsed = JSON.parse(raw);
+        const incoming = Array.isArray(parsed) ? parsed.reduce((acc, m) => {
+          if (m == null ? void 0 : m.id) acc[String(m.id)] = m;
+          return acc;
+        }, {}) : parsed && typeof parsed === "object" ? parsed : {};
+        let added = 0;
+        for (const id of Object.keys(incoming)) {
+          const entry = incoming[id];
+          if (!entry || typeof entry !== "object" || !entry.id && !entry.content) continue;
+          if (log[id]) continue;
+          log[id] = entry;
+          added++;
+        }
+        prune(cfg.maxStored);
+        await persistLog();
+        restoreHighlightsFromLog();
+        void reload();
+        notifySettingsChanged();
+        toast("Imported " + added + " new entr" + (added === 1 ? "y" : "ies"), "msglogger-import");
+      } catch {
+        toast("Import failed \u2014 clipboard must hold log JSON", "msglogger-import-fail");
       }
     };
     const clearLog = async () => {
@@ -1627,12 +1859,91 @@ function makeSettingsComponent() {
       key,
       label,
       subLabel,
-      value: (settings == null ? void 0 : settings[key]) !== false,
+      value: !!S(key),
       onValueChange: (v) => {
         var _a3, _b3;
         return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { [key]: v });
       }
     });
+    const choice = (key, label, subLabel, options) => el(
+      View,
+      { key, style: { paddingHorizontal: 16, paddingVertical: 10 } },
+      el(Text, { style: { color: C.text, fontSize: 15, fontWeight: "600" } }, label),
+      el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, subLabel),
+      el(
+        View,
+        { style: { flexDirection: "row", flexWrap: "wrap", marginTop: 6 } },
+        ...options.map(
+          (o) => el(
+            Pressable,
+            {
+              key: o.value,
+              onPress: () => {
+                var _a3, _b3;
+                return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { [key]: o.value });
+              },
+              style: {
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                marginRight: 8,
+                marginBottom: 6,
+                backgroundColor: S(key) === o.value ? "#5865F2" : C.card
+              }
+            },
+            el(
+              Text,
+              {
+                style: {
+                  color: S(key) === o.value ? "#ffffff" : C.sub,
+                  fontWeight: "700",
+                  fontSize: 13
+                }
+              },
+              o.label
+            )
+          )
+        )
+      )
+    );
+    const diffLine = (before, after, key = "diff") => {
+      if (!cfg.showEditDiffs) return null;
+      const parts = diffWords(before, after);
+      if (cfg.separatedDiffs) {
+        const removed = parts.filter((p) => p.type === "removed").map((p) => p.text).join("").trim();
+        const added = parts.filter((p) => p.type === "added").map((p) => p.text).join("").trim();
+        const rows = [];
+        if (removed)
+          rows.push(
+            el(
+              Text,
+              { key: "removed", style: { color: C.deleted, fontSize: 12, textDecorationLine: "line-through" } },
+              removed
+            )
+          );
+        if (added)
+          rows.push(el(Text, { key: "added", style: { color: C.added, fontSize: 12 } }, added));
+        return el(View, { key, style: { marginTop: 4 } }, ...rows);
+      }
+      return el(
+        View,
+        { key, style: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 } },
+        ...parts.filter((p) => p.text.trim().length > 0).map(
+          (p, i) => el(
+            Text,
+            {
+              key: i,
+              style: {
+                fontSize: 12,
+                color: p.type === "removed" ? C.deleted : p.type === "added" ? C.added : C.sub,
+                textDecorationLine: p.type === "removed" ? "line-through" : "none"
+              }
+            },
+            p.text
+          )
+        )
+      );
+    };
     const deletedCount = entries.filter((m) => m.status === "deleted").length;
     const editedCount = entries.filter((m) => m.status === "edited").length;
     const ghostCount = entries.filter((m) => m.ghostPing).length;
@@ -1679,6 +1990,13 @@ function makeSettingsComponent() {
         sw("logEdits", "Log edited messages"),
         sw("ghostPings", "Ghost ping toasts", "Toast when a message mentioning you is deleted"),
         sw("colorHighlights", "Red highlight in chat", "Deleted messages stay visible with red text (Vencord style)"),
+        choice("deleteStyle", "Deleted message style", "Red text, or a red row overlay with normal text.", [
+          { value: "text", label: "Red text" },
+          { value: "overlay", label: "Red overlay" }
+        ]),
+        sw("logDeletedAttachments", "Log deleted attachments", "Mark attachments the delete removed on the kept row"),
+        sw("showEditDiffs", "Show edit diffs", "Previous versions read as a real diff: strikethrough removed, underline added"),
+        sw("separatedDiffs", "Separated diffs", "Show removals and additions on their own lines"),
         sw("saveImages", "Save deleted images", "Downloads images from deleted messages into device storage"),
         el(DText, null, "Attachment size limit (MB) \u2014 larger files are not saved."),
         el(DInput, {
@@ -1725,7 +2043,7 @@ function makeSettingsComponent() {
       el(
         RowGroup,
         { title: "Filters" },
-        el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel IDs always logged, overriding ignores."),
+        el(DText, null, "Whitelisted IDs \u2014 comma-separated user/channel/server IDs that always get logged, overriding muted servers, categories and channels."),
         el(DInput, {
           placeholder: "e.g. 123456789012345678",
           placeholderTextColor: C.sub,
@@ -1758,7 +2076,40 @@ function makeSettingsComponent() {
             if (!isNaN(n) && n >= 0) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { timeBasedCleanupMinutes: n });
           },
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Maximum stored messages \u2014 the oldest are dropped first. This is the size of your archive."),
+        el(DInput, {
+          placeholder: "300",
+          placeholderTextColor: C.sub,
+          defaultValue: String(S("maxStored")),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n >= 10 && n <= 1e4) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { maxStored: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
+        }),
+        el(DText, null, "Entries shown at once in the log below \u2014 \u201CLoad more\u201D adds this many."),
+        el(DInput, {
+          placeholder: "100",
+          placeholderTextColor: C.sub,
+          defaultValue: String(S("logsPerPage")),
+          onChangeText: (t) => {
+            var _a3, _b3;
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n >= 10 && n <= 1e3) (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { logsPerPage: n });
+          },
+          style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         })
+      ),
+      el(
+        RowGroup,
+        { title: "Muted and DMs" },
+        sw("ignoreMutedChannels", "Ignore muted channels", "Overridden by the two always-log rules below"),
+        sw("ignoreMutedCategories", "Ignore muted categories"),
+        sw("ignoreMutedGuilds", "Ignore muted servers"),
+        sw("alwaysLogDirectMessages", "Always log DMs", "Direct messages are logged unless their ID is blacklisted"),
+        sw("alwaysLogCurrentChannel", "Always log the open channel", "Turn off if you want muted channels to stay silent")
       ),
       el(
         RowGroup,
@@ -1826,8 +2177,30 @@ function makeSettingsComponent() {
       ),
       el(
         RowGroup,
-        { title: "Saved log (" + visible.length + " shown)" },
-        el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4 } }, tab("all", "All"), tab("deleted", "Deleted"), tab("edited", "Edited"), tab("ghost", "Ghost pings")),
+        { title: "Saved log (" + Math.min(visible.length, limit || pageSize) + " of " + visible.length + ")" },
+        el(
+          ScrollView,
+          { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4, flexDirection: "row", alignItems: "center" } },
+          tab("all", "All"),
+          tab("deleted", "Deleted"),
+          tab("edited", "Edited"),
+          tab("ghost", "Ghost pings"),
+          el(
+            Pressable,
+            {
+              onPress: () => {
+                var _a3, _b3;
+                return (_b3 = (_a3 = api == null ? void 0 : api.jsonStorage) == null ? void 0 : _a3.set) == null ? void 0 : _b3.call(_a3, { sortNewest: !sortNewest });
+              },
+              style: { paddingVertical: 8, paddingHorizontal: 10 }
+            },
+            el(
+              Text,
+              { style: { color: C.sub, fontWeight: "700" } },
+              sortNewest ? "Newest \u2193" : "Oldest \u2191"
+            )
+          )
+        ),
         el(DInput, {
           placeholder: "Search author or text\u2026",
           placeholderTextColor: C.sub,
@@ -1835,7 +2208,7 @@ function makeSettingsComponent() {
           onChangeText: setQuery,
           style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 }
         }),
-        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : visible.slice(0, 200).map((m) => {
+        visible.length === 0 ? el(DText, null, "Nothing logged yet. Deleted and edited messages will appear here.") : shown.map((m) => {
           var _a3;
           const isDel = m.ghostPing || m.status === "deleted";
           const statusColor = isDel ? C.deleted : C.edited;
@@ -1858,7 +2231,7 @@ function makeSettingsComponent() {
               "[" + (m.ghostPing ? "GHOST PING" : m.status === "deleted" ? "DELETED" : "EDITED") + "] " + m.authorTag + " \u2014 " + new Date(m.timestamp).toLocaleString()
             ),
             el(Text, { style: { color: C.text } }, m.content || "(no text content)"),
-            m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " attachment(s) saved as links"),
+            m.attachments.length > 0 && cfg.logDeletedAttachments ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + " deleted attachment(s)") : null,
             m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + " image(s) saved to device") : null,
             ...m.savedImages && Image ? [
               el(
@@ -1877,14 +2250,32 @@ function makeSettingsComponent() {
                 )
               )
             ] : [],
-            m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
+            ...m.edits.length > 0 && cfg.showEditDiffs ? m.edits.map(
+              (h, i) => {
+                var _a4;
+                return diffLine(String(h), String((_a4 = m.edits[i + 1]) != null ? _a4 : m.content), "diff-" + i);
+              }
+            ).filter(Boolean) : [],
+            m.edits.length > 0 && !cfg.showEditDiffs && el(Text, { style: { color: C.sub, fontSize: 12 } }, "Previous versions: " + m.edits.join("  |  ")),
             el(
               Pressable,
               { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
               el(Text, { style: { color: C.sub, fontSize: 12 } }, "Delete entry")
             )
           );
-        })
+        }),
+        visible.length > shown.length ? el(
+          Pressable,
+          {
+            onPress: () => setLimit((limit || pageSize) + pageSize),
+            style: { padding: 10, alignItems: "center" }
+          },
+          el(
+            Text,
+            { style: { color: C.text, fontWeight: "700" } },
+            "Load " + pageSize + " more (" + (visible.length - shown.length) + " remaining)"
+          )
+        ) : null
       ),
       el(
         View,
@@ -1893,6 +2284,11 @@ function makeSettingsComponent() {
           Pressable,
           { onPress: () => void exportLog(), style: { padding: 12, alignItems: "center" } },
           el(Text, { style: { fontWeight: "bold", color: C.text } }, "Copy log JSON to clipboard")
+        ),
+        el(
+          Pressable,
+          { onPress: () => void importLog(), style: { padding: 12, alignItems: "center" } },
+          el(Text, { style: { fontWeight: "bold", color: C.text } }, "Import log JSON from clipboard (merges)")
         ),
         el(
           Pressable,
