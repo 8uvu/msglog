@@ -2,15 +2,15 @@
     "format": 1,
     "id": "dev.8uvu.message-logger",
     "name": "MessageLogger",
-    "description": "Message logger with searchable deleted/edited history, inline edit history, image caching, and a redesigned settings viewer",
+    "description": "Message logger with searchable deleted/edited history, edit diffs, ghost pings, muted-channel filters, image caching and import/export",
     "author": "8uvu aka Epitaph",
     "main": "index.js",
     "display": {
         "name": "MessageLogger",
-        "description": "Message logger with searchable deleted/edited history, inline edit history, image caching, and a redesigned settings viewer",
+        "description": "Message logger with searchable deleted/edited history, edit diffs, ghost pings, muted-channel filters, image caching and import/export",
         "authors": [{ "name": "8uvu aka Epitaph" }]
     },
-    "version": "1.6.8",
+    "version": "1.7.0",
     "dependencies": {
         "revenge.api": { "version": ">=1" },
         "discord": { "version": "*" }

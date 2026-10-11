@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.6.8';
+const PLUGIN_VERSION = '1.7.0';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -52,18 +52,35 @@ interface Settings {
     keepSelfDeletes: boolean;
     deletedInfo: boolean;
     inlineEdits: boolean;
+    // Equicord "Delete Style": 'text' = red text, 'overlay' = red row overlay.
+    deleteStyle: 'text' | 'overlay';
+    // Equicord "Show Edit Diffs" / "Separated Diffs".
+    showEditDiffs: boolean;
+    separatedDiffs: boolean;
+    // Equicord "Log Deleted Attachments": mark attachments the delete took away.
+    logDeletedAttachments: boolean;
     ghostPings: boolean;
     colorHighlights: boolean;
     ignoreBots: boolean;
     ignoreWebhooks: boolean;
     ignoreSelf: boolean;
     ignoreSelfEdits: boolean;
+    // Equicord MLE "Always log Direct Messages" / "Always log current channel".
+    alwaysLogDirectMessages: boolean;
+    alwaysLogCurrentChannel: boolean;
+    // Equicord MLE mute-based ignores.
+    ignoreMutedGuilds: boolean;
+    ignoreMutedCategories: boolean;
+    ignoreMutedChannels: boolean;
     saveImages: boolean;
     imageQuotaGB: number;
     attachmentSizeLimitMB: number;
     attachmentExtensions: string;
     timeBasedCleanupMinutes: number;
     maxStored: number;
+    // Log viewer: Equicord MLE "Sort newest first" + display batch size.
+    sortNewest: boolean;
+    logsPerPage: number;
     ignoredChannels: string;
     ignoredUsers: string;
     ignoredGuilds: string;
@@ -96,18 +113,29 @@ const DEFAULT_SETTINGS: Settings = {
     keepSelfDeletes: true,
     deletedInfo: true,
     inlineEdits: true,
+    deleteStyle: 'text',
+    showEditDiffs: false,
+    separatedDiffs: false,
+    logDeletedAttachments: true,
     ghostPings: true,
     colorHighlights: true,
     ignoreBots: true,
     ignoreWebhooks: false,
     ignoreSelf: false,
     ignoreSelfEdits: false,
+    alwaysLogDirectMessages: true,
+    alwaysLogCurrentChannel: true,
+    ignoreMutedGuilds: false,
+    ignoreMutedCategories: false,
+    ignoreMutedChannels: false,
     saveImages: true,
     imageQuotaGB: 2,
     attachmentSizeLimitMB: 100,
     attachmentExtensions: 'png,jpg,jpeg,gif,webp',
     timeBasedCleanupMinutes: 0,
     maxStored: 300,
+    sortNewest: true,
+    logsPerPage: 100,
     ignoredChannels: '',
     ignoredUsers: '',
     ignoredGuilds: '',
@@ -377,6 +405,10 @@ function coerceSettings(raw: any): Settings {
         ghostPings: c.ghostPings !== false,
         colorHighlights: c.colorHighlights !== false,
         inlineEdits: c.inlineEdits !== false,
+        deleteStyle: c.deleteStyle === 'overlay' ? 'overlay' : 'text',
+        showEditDiffs: !!c.showEditDiffs,
+        separatedDiffs: !!c.separatedDiffs,
+        logDeletedAttachments: c.logDeletedAttachments !== false,
         saveImages: c.saveImages !== false,
         imageQuotaGB:
             typeof c.imageQuotaGB === 'number' && c.imageQuotaGB >= 0.1 && c.imageQuotaGB <= 100
@@ -395,6 +427,16 @@ function coerceSettings(raw: any): Settings {
         ignoreWebhooks: !!c.ignoreWebhooks,
         ignoreSelf: !!c.ignoreSelf,
         ignoreSelfEdits: !!c.ignoreSelfEdits,
+        alwaysLogDirectMessages: c.alwaysLogDirectMessages !== false,
+        alwaysLogCurrentChannel: c.alwaysLogCurrentChannel !== false,
+        ignoreMutedGuilds: !!c.ignoreMutedGuilds,
+        ignoreMutedCategories: !!c.ignoreMutedCategories,
+        ignoreMutedChannels: !!c.ignoreMutedChannels,
+        sortNewest: c.sortNewest !== false,
+        logsPerPage:
+            typeof c.logsPerPage === 'number' && c.logsPerPage >= 10 && c.logsPerPage <= 1000
+                ? Math.floor(c.logsPerPage)
+                : DEFAULT_SETTINGS.logsPerPage,
         maxStored:
             typeof c.maxStored === 'number' && c.maxStored >= 10 && c.maxStored <= 10000
                 ? Math.floor(c.maxStored)
@@ -650,13 +692,39 @@ function takeSkipped(id: string): boolean {
     return true;
 }
 
-// Shared per-message gate (Equicord parity): whitelist overrides every other
-// ignore; guild ignores apply to non-whitelisted messages.
-function gateMessage(message: any, snap: ReturnType<typeof snapshotOf>): boolean {
-    const id = snap.id;
-    const channelId = snap.channelId;
-    if (inList(id, cfg.whitelistedIds) || inList(channelId, cfg.whitelistedIds)) return true;
-    if (inList(id, cfg.ignoredUsers) || inList(channelId, cfg.ignoredChannels) || inList(snap.guildId, cfg.ignoredGuilds)) return false;
+// Shared per-message gate (Equicord + MessageLoggerEnhanced parity).
+// Precedence, highest first:
+//   1. explicit ignore lists (users / channels / guilds) — beat everything
+//   2. whitelists
+//   3. always-log rules — DMs, and the channel you are looking at
+//   4. mute-based ignores (muted channel / category / server)
+// MLE documents always-log as losing only to explicit blacklists, so muting a
+// server does not silence the channel you are reading — turn "Always log the
+// open channel" off if you want mutes to win.
+function gateMessage(
+    _message: any,
+    snap: { id?: string; channelId?: string; guildId?: string; authorId?: string },
+): boolean {
+    const userId = String(snap?.authorId ?? '');
+    const channelId = String(snap?.channelId ?? '');
+    const guildId = String(snap?.guildId ?? '') || channelGuildIdFor(channelId);
+    if (
+        inList(userId, cfg.ignoredUsers) ||
+        inList(channelId, cfg.ignoredChannels) ||
+        inList(guildId, cfg.ignoredGuilds)
+    )
+        return false;
+    if (
+        inList(userId, cfg.whitelistedIds) ||
+        inList(channelId, cfg.whitelistedIds) ||
+        inList(guildId, cfg.whitelistedIds)
+    )
+        return true;
+    if (cfg.alwaysLogDirectMessages && channelId && isDmChannel(channelId)) return true;
+    if (cfg.alwaysLogCurrentChannel && channelId && channelId === currentChannelId()) return true;
+    if (cfg.ignoreMutedChannels && isChannelMuted(channelId)) return false;
+    if (cfg.ignoreMutedCategories && isCategoryMuted(channelId)) return false;
+    if (cfg.ignoreMutedGuilds && isGuildMuted(guildId)) return false;
     return true;
 }
 
@@ -719,38 +787,23 @@ function alertBox(title: string, msg: string) {
 }
 
 function getChannelStore(): any {
-    try {
-        if (typeof revenge !== 'undefined') {
-            const s: any = revenge.discord?.flux?.Stores;
-            if (s?.ChannelStore) return s.ChannelStore;
-        }
-    } catch {}
+    // getStore covers Stores.ChannelStore, the hosts' store registries and
+    // metro.findByStoreName — the only paths that matter on current builds.
+    const found = getStore('ChannelStore');
+    if (found?.getChannel) return found;
     try {
         const b: any = typeof bunny !== 'undefined' ? bunny : null;
         const metro = b?.metro;
         for (const c of [b?.common?.ChannelStore, metro?.common?.ChannelStore]) {
-            if (c) return c;
+            if (c?.getChannel) return c;
         }
-        if (metro?.findByStoreName) {
-            const m = metro.findByStoreName('ChannelStore');
-            if (m?.getChannel) return m;
-        }
-        if (metro?.findByProps) {
-            const m = metro.findByProps('getChannel');
-            if (m?.getChannel) return m;
-        }
+        const m = metro?.findByProps?.('getChannel');
+        if (m?.getChannel) return m;
     } catch {}
     try {
         const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
-        const metro = v?.metro;
-        if (metro?.findByStoreName) {
-            const m = metro.findByStoreName('ChannelStore');
-            if (m?.getChannel) return m;
-        }
-        if (metro?.findByProps) {
-            const m = metro.findByProps('getChannel');
-            if (m?.getChannel) return m;
-        }
+        const m = v?.metro?.findByProps?.('getChannel') ?? v?.common?.metro?.findByProps?.('getChannel');
+        if (m?.getChannel) return m;
     } catch {}
     return null;
 }
@@ -765,6 +818,190 @@ function toastGhostPing(entry: LoggedMessage) {
         'Ghost ping by ' + entry.authorTag + ' in ' + where + ': ' + entry.content.slice(0, 120),
         'msglogger-ghostping-' + entry.id,
     );
+}
+
+// ---- Store lookups (Equicord MLE mute + DM filters) ------------------------
+
+function getStore(name: string): any {
+    try {
+        const s: any = (typeof revenge !== 'undefined' && (revenge as any)?.discord?.flux?.Stores) || null;
+        if (s?.[name]) return s[name];
+    } catch {}
+    try {
+        const b: any = typeof bunny !== 'undefined' ? bunny : null;
+        const s: any = b?.api?.flux?.stores ?? b?.metro?.common?.Stores ?? null;
+        if (s?.[name]) return s[name];
+    } catch {}
+    try {
+        const v: any = typeof vendetta !== 'undefined' ? vendetta : null;
+        const s: any = v?.metro?.common?.Stores ?? v?.common?.Stores ?? null;
+        if (s?.[name]) return s[name];
+    } catch {}
+    try {
+        const metro = getMetro();
+        const m = metro?.findByStoreName?.(name);
+        if (m) return m;
+    } catch {}
+    return null;
+}
+
+function channelGuildIdFor(channelId: string): string {
+    try {
+        const ch = getChannelStore()?.getChannel?.(channelId);
+        return String(ch?.guild_id ?? ch?.guildId ?? '');
+    } catch {}
+    return '';
+}
+
+function isDmChannel(channelId: string): boolean {
+    if (!channelId) return false;
+    try {
+        const type = getChannelStore()?.getChannel?.(channelId)?.type;
+        // Discord channel types: 1 = DM, 3 = group DM.
+        return type === 1 || type === 3;
+    } catch {}
+    return false;
+}
+
+function currentChannelId(): string {
+    try {
+        const s = getStore('SelectedChannelStore');
+        return String(s?.getChannelId?.() ?? s?.getMostRecentSelectedTextChannelId?.() ?? '');
+    } catch {}
+    return '';
+}
+
+// Equicord MLE mute-based ignores — UserGuildSettingsStore answers all three.
+function isChannelMuted(channelId: string): boolean {
+    if (!channelId) return false;
+    try {
+        return !!getStore('UserGuildSettingsStore')?.isChannelMuted?.(channelId);
+    } catch {}
+    return false;
+}
+
+function isCategoryMuted(channelId: string): boolean {
+    if (!channelId) return false;
+    try {
+        return !!getStore('UserGuildSettingsStore')?.isCategoryMuted?.(channelId);
+    } catch {}
+    return false;
+}
+
+function isGuildMuted(guildId: string): boolean {
+    if (!guildId) return false;
+    try {
+        return !!getStore('UserGuildSettingsStore')?.isGuildMuted?.(guildId);
+    } catch {}
+    return false;
+}
+
+// ---- Edit diffs (Equicord "Show Edit Diffs" / "Separated Diffs") ----------
+//
+// Word-level LCS diff, hand-rolled (this plugin has no dependencies). Bounded
+// by a token budget so a pathological edit cannot stall the render thread.
+
+interface DiffPart {
+    type: 'same' | 'removed' | 'added';
+    text: string;
+}
+
+function tokenize(text: string): string[] {
+    return String(text ?? '').match(/\s+|[^\s]+/g) ?? [];
+}
+
+function diffWords(before: string, after: string): DiffPart[] {
+    const a = tokenize(before);
+    const b = tokenize(after);
+    if (!a.length || !b.length || a.length * b.length > 40000) {
+        if (String(before ?? '') === String(after ?? '')) return [{ type: 'same', text: String(after ?? '') }];
+        return [
+            { type: 'removed', text: String(before ?? '') },
+            { type: 'added', text: String(after ?? '') },
+        ];
+    }
+    const rows: Uint32Array[] = [];
+    for (let i = 0; i <= a.length; i++) rows.push(new Uint32Array(b.length + 1));
+    for (let i = a.length - 1; i >= 0; i--) {
+        for (let j = b.length - 1; j >= 0; j--) {
+            rows[i][j] =
+                a[i] === b[j]
+                    ? rows[i + 1][j + 1] + 1
+                    : Math.max(rows[i + 1][j], rows[i][j + 1]);
+        }
+    }
+    const parts: DiffPart[] = [];
+    const push = (type: DiffPart['type'], text: string) => {
+        if (!text) return;
+        const last = parts[parts.length - 1];
+        if (last && last.type === type) last.text += text;
+        else parts.push({ type, text });
+    };
+    let i = 0;
+    let j = 0;
+    while (i < a.length && j < b.length) {
+        if (a[i] === b[j]) {
+            push('same', a[i]);
+            i++;
+            j++;
+        } else if (rows[i + 1][j] >= rows[i][j + 1]) {
+            push('removed', a[i]);
+            i++;
+        } else {
+            push('added', b[j]);
+            j++;
+        }
+    }
+    while (i < a.length) {
+        push('removed', a[i]);
+        i++;
+    }
+    while (j < b.length) {
+        push('added', b[j]);
+        j++;
+    }
+    return parts;
+}
+
+// Discord renders ~~strikethrough~~ and __underline__, so an in-chat diff needs
+// no renderer patch at all — removed text is struck through, added text
+// underlined.
+function diffToMarkdown(parts: DiffPart[]): string {
+    let out = '';
+    for (const part of parts) {
+        if (part.type === 'same') {
+            out += part.text;
+            continue;
+        }
+        const text = part.text.replace(/\s+/g, ' ').trim();
+        if (!text) continue;
+        out += (part.type === 'removed' ? '~~' + text + '~~' : '__' + text + '__') + ' ';
+    }
+    // Marker boundaries add a space where the unchanged text already had one.
+    return out.replace(/ {2,}/g, ' ').trim();
+}
+
+function diffToSeparatedMarkdown(parts: DiffPart[]): string {
+    const join = (type: DiffPart['type']) =>
+        parts
+            .filter((p) => p.type === type)
+            .map((p) => p.text)
+            .join('')
+            .replace(/\s+/g, ' ')
+            .trim();
+    const removed = join('removed');
+    const added = join('added');
+    const lines: string[] = [];
+    if (removed) lines.push('~~' + removed + '~~');
+    if (added) lines.push('__' + added + '__');
+    return lines.join('\n') || '(no text change)';
+}
+
+// One logged version rendered for display — plain when diffs are off.
+function changeLine(before: string, after: string): string {
+    if (!cfg.showEditDiffs) return before;
+    const parts = diffWords(before, after);
+    return cfg.separatedDiffs ? diffToSeparatedMarkdown(parts) : diffToMarkdown(parts);
 }
 
 // ---- Saved images (messageLoggerEnhanced-style) ----------------------------
@@ -1125,6 +1362,9 @@ function handleCreate(payload: any) {
 
 function handleDelete(payload: any) {
     if (!cfg.enabled || !cfg.logDeletes) return;
+    // FakeDM-style clear: the fake messages it injected are being removed on
+    // purpose, so they must not be logged or kept as red rows.
+    if (payload?.mlDeleted) return;
     const id = String(payload?.message?.id ?? payload?.id ?? '');
     const channelId = String(payload?.message?.channelId ?? payload?.channelId ?? '');
     if (!id || inList(channelId, cfg.ignoredChannels)) return;
@@ -1343,6 +1583,9 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
             try {
                 const type = payload?.type;
                 if (type === 'MESSAGE_DELETE' && cfg.logDeletes) {
+                    // FakeDM-style plugins mark their own removals with
+                    // `mlDeleted` — let those rows vanish normally.
+                    if (payload?.mlDeleted) return undefined;
                     const id = String(payload?.id ?? payload?.messageId ?? payload?.message?.id ?? '');
                     const channelId = String(payload?.channelId ?? payload?.channel_id ?? payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
                     if (!id || !channelId) return;
@@ -1442,11 +1685,25 @@ function paintRow(row: any, processColor: (c: any) => any) {
         const when = cfg.deletedInfo && entry?.timestamp ? ' at ' + new Date(entry.timestamp).toLocaleString() : '';
         msg.edited = '(deleted' + who + when + ')';
         const red = processColor('#f04747');
-        msg.textColor = red;
-        row.backgroundHighlight = {
-            backgroundColor: processColor('#f047471f'),
-            gutterColor: red,
-        };
+        // Equicord "Delete Style": red text + red gutter, or a red overlay with
+        // the row's normal text color.
+        if (cfg.deleteStyle === 'overlay') {
+            delete msg.textColor;
+            row.backgroundHighlight = { backgroundColor: processColor('#f0474740') };
+        } else {
+            msg.textColor = red;
+            row.backgroundHighlight = {
+                backgroundColor: processColor('#f047471f'),
+                gutterColor: red,
+            };
+        }
+        // Equicord "Log Deleted Attachments": the delete took the attachments
+        // with it, so say so on the row that stays behind.
+        const taken = entry?.attachments?.length ?? 0;
+        if (cfg.logDeletedAttachments && taken > 0 && typeof msg.content === 'string') {
+            const marker = '*(' + (taken === 1 ? 'deleted attachment' : taken + ' deleted attachments') + ')*';
+            if (!msg.content.includes(marker)) msg.content = msg.content + '\n' + marker;
+        }
     } else {
         // Never style edited messages. Older builds wrote yellow row
         // highlights; clear every known native paint field so the row uses
@@ -1464,8 +1721,14 @@ function paintRow(row: any, processColor: (c: any) => any) {
     if (cfg.inlineEdits && typeof msg.content === 'string') {
         const history = log[id]?.edits ?? [];
         if (history.length) {
-            const block = history.map((h) => String(h) + ' (edited)').join('\n');
-            if (!msg.content.includes(block)) {
+            // Each logged version is compared with the version that replaced
+            // it, so with "Show Edit Diffs" on the block reads as a real diff.
+            const current = msg.content;
+            const versions = [...history, current];
+            const block = history
+                .map((h, i) => changeLine(String(h), String(versions[i + 1] ?? current)) + ' (edited)')
+                .join('\n');
+            if (block && !msg.content.includes(block)) {
                 msg.content = block + '\n' + msg.content;
             }
         }
@@ -1628,6 +1891,7 @@ function viewerColors() {
             sub: '#4e5058',
             deleted: '#d83c3e',
             deletedBg: 'rgba(216,60,62,0.10)',
+            added: '#1a7f37',
             edited: '#4e5058',
             editedBg: 'transparent',
         };
@@ -1639,6 +1903,7 @@ function viewerColors() {
         sub: '#949ba4',
         deleted: '#f23f43',
         deletedBg: 'rgba(242,63,67,0.14)',
+        added: '#3ba55d',
         edited: '#949ba4',
         editedBg: 'transparent',
     };
@@ -1741,6 +2006,13 @@ function makeSettingsComponent() {
         const [query, setQuery] = React.useState('');
         const [refreshTick, setRefreshTick] = React.useState(0);
         const [selectedUser, setSelectedUser] = React.useState<string | null>(null);
+        const [limit, setLimit] = React.useState(0); // 0 = the configured page size
+
+        // Effective value of a setting: stored value, else the plugin default.
+        // Reading the defaults (not just the stored cache) is what makes a
+        // brand-new key behave like its documented default before first write.
+        const S = (key: keyof Settings): any =>
+            settings?.[key] === undefined ? (DEFAULT_SETTINGS as any)[key] : settings[key];
 
         React.useEffect(() => {
             settingsChangedCb = () => setRefreshTick((t: number) => t + 1);
@@ -1765,7 +2037,15 @@ function makeSettingsComponent() {
             void reload();
         }, [refreshTick]);
 
-        const visible = entries.filter((m: LoggedMessage) => {
+        // A new filter or search resets the pagination window.
+        React.useEffect(() => {
+            setLimit(0);
+        }, [filter, query]);
+
+        const sortNewest = S('sortNewest') !== false;
+        const ordered = sortNewest ? (entries as LoggedMessage[]) : [...(entries as LoggedMessage[])].reverse();
+        const pageSize = Math.max(10, Math.min(1000, Number(S('logsPerPage')) || 100));
+        const visible = ordered.filter((m: LoggedMessage) => {
             if (filter === 'deleted' && m.status !== 'deleted') return false;
             if (filter === 'edited' && m.status !== 'edited') return false;
             if (filter === 'ghost' && !m.ghostPing) return false;
@@ -1780,6 +2060,9 @@ function makeSettingsComponent() {
                 return false;
             return true;
         });
+
+        // Pagination window — Equicord MLE's "messages to display at once".
+        const shown = visible.slice(0, limit || pageSize);
 
         const removeEntry = async (id: string) => {
             try {
@@ -1797,6 +2080,41 @@ function makeSettingsComponent() {
                 toast('Log copied to clipboard', 'msglogger-export');
             } catch {
                 toast('Export failed — clipboard unavailable', 'msglogger-export-fail');
+            }
+        };
+
+        // Equicord MLE "Import Logs". Merge-only: an existing entry is never
+        // overwritten, and the imported batches never clear the log first.
+        const importLog = async () => {
+            try {
+                const clip = getClipboard();
+                const raw = await clip?.getString?.();
+                if (typeof raw !== 'string' || !raw.trim()) throw new Error('clipboard empty');
+                const parsed = JSON.parse(raw);
+                const incoming: Record<string, LoggedMessage> = Array.isArray(parsed)
+                    ? parsed.reduce((acc: Record<string, LoggedMessage>, m: any) => {
+                          if (m?.id) acc[String(m.id)] = m;
+                          return acc;
+                      }, {})
+                    : parsed && typeof parsed === 'object'
+                      ? parsed
+                      : {};
+                let added = 0;
+                for (const id of Object.keys(incoming)) {
+                    const entry = incoming[id];
+                    if (!entry || typeof entry !== 'object' || (!entry.id && !entry.content)) continue;
+                    if (log[id]) continue;
+                    log[id] = entry;
+                    added++;
+                }
+                prune(cfg.maxStored);
+                await persistLog();
+                restoreHighlightsFromLog();
+                void reload();
+                notifySettingsChanged();
+                toast('Imported ' + added + ' new entr' + (added === 1 ? 'y' : 'ies'), 'msglogger-import');
+            } catch {
+                toast('Import failed — clipboard must hold log JSON', 'msglogger-import-fail');
             }
         };
 
@@ -1867,9 +2185,101 @@ function makeSettingsComponent() {
                 key,
                 label,
                 subLabel,
-                value: settings?.[key] !== false,
+                value: !!S(key),
                 onValueChange: (v: boolean) => api?.jsonStorage?.set?.({ [key]: v }),
             });
+
+        // A string setting with two or three visible choices (Equicord's
+        // "Delete Style" picker). Rendered as tappable chips so it works with
+        // or without Discord's design components.
+        const choice = (
+            key: keyof Settings,
+            label: string,
+            subLabel: string,
+            options: Array<{ value: string; label: string }>,
+        ) =>
+            el(
+                View,
+                { key: key as string, style: { paddingHorizontal: 16, paddingVertical: 10 } },
+                el(Text, { style: { color: C.text, fontSize: 15, fontWeight: '600' } }, label),
+                el(Text, { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, subLabel),
+                el(
+                    View,
+                    { style: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 } },
+                    ...options.map((o) =>
+                        el(
+                            Pressable,
+                            {
+                                key: o.value,
+                                onPress: () => api?.jsonStorage?.set?.({ [key]: o.value }),
+                                style: {
+                                    paddingVertical: 6,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    marginRight: 8,
+                                    marginBottom: 6,
+                                    backgroundColor: S(key) === o.value ? '#5865F2' : C.card,
+                                },
+                            },
+                            el(
+                                Text,
+                                {
+                                    style: {
+                                        color: S(key) === o.value ? '#ffffff' : C.sub,
+                                        fontWeight: '700',
+                                        fontSize: 13,
+                                    },
+                                },
+                                o.label,
+                            ),
+                        ),
+                    ),
+                ),
+            );
+
+        // Inline edit diff for the log viewer: removals struck through in red,
+        // additions in green — or the two lists on their own lines when
+        // "Separated diffs" is on.
+        const diffLine = (before: string, after: string, key: string = 'diff') => {
+            if (!cfg.showEditDiffs) return null;
+            const parts = diffWords(before, after);
+            if (cfg.separatedDiffs) {
+                const removed = parts.filter((p) => p.type === 'removed').map((p) => p.text).join('').trim();
+                const added = parts.filter((p) => p.type === 'added').map((p) => p.text).join('').trim();
+                const rows: any[] = [];
+                if (removed)
+                    rows.push(
+                        el(
+                            Text,
+                            { key: 'removed', style: { color: C.deleted, fontSize: 12, textDecorationLine: 'line-through' } },
+                            removed,
+                        ),
+                    );
+                if (added)
+                    rows.push(el(Text, { key: 'added', style: { color: C.added, fontSize: 12 } }, added));
+                return el(View, { key, style: { marginTop: 4 } }, ...rows);
+            }
+            return el(
+                View,
+                { key, style: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 } },
+                ...parts
+                    .filter((p) => p.text.trim().length > 0)
+                    .map((p, i) =>
+                        el(
+                            Text,
+                            {
+                                key: i,
+                                style: {
+                                    fontSize: 12,
+                                    color: p.type === 'removed' ? C.deleted : p.type === 'added' ? C.added : C.sub,
+                                    textDecorationLine: p.type === 'removed' ? 'line-through' : 'none',
+                                },
+                            },
+                            p.text,
+                        ),
+                    ),
+            );
+        };
 
         const deletedCount = (entries as LoggedMessage[]).filter((m) => m.status === 'deleted').length;
         const editedCount = (entries as LoggedMessage[]).filter((m) => m.status === 'edited').length;
@@ -1915,6 +2325,13 @@ function makeSettingsComponent() {
                 sw('logEdits', 'Log edited messages'),
                 sw('ghostPings', 'Ghost ping toasts', 'Toast when a message mentioning you is deleted'),
                 sw('colorHighlights', 'Red highlight in chat', 'Deleted messages stay visible with red text (Vencord style)'),
+                choice('deleteStyle', 'Deleted message style', 'Red text, or a red row overlay with normal text.', [
+                    { value: 'text', label: 'Red text' },
+                    { value: 'overlay', label: 'Red overlay' },
+                ]),
+                sw('logDeletedAttachments', 'Log deleted attachments', 'Mark attachments the delete removed on the kept row'),
+                sw('showEditDiffs', 'Show edit diffs', 'Previous versions read as a real diff: strikethrough removed, underline added'),
+                sw('separatedDiffs', 'Separated diffs', 'Show removals and additions on their own lines'),
                 sw('saveImages', 'Save deleted images', 'Downloads images from deleted messages into device storage'),
                 el(DText, null, 'Attachment size limit (MB) — larger files are not saved.'),
                 el(DInput, {
@@ -1956,7 +2373,7 @@ function makeSettingsComponent() {
             el(
                 RowGroup,
                 { title: 'Filters' },
-                el(DText, null, 'Whitelisted IDs — comma-separated user/channel IDs always logged, overriding ignores.'),
+                el(DText, null, 'Whitelisted IDs — comma-separated user/channel/server IDs that always get logged, overriding muted servers, categories and channels.'),
                 el(DInput, {
                     placeholder: 'e.g. 123456789012345678',
                     placeholderTextColor: C.sub,
@@ -1983,6 +2400,37 @@ function makeSettingsComponent() {
                     },
                     style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
                 }),
+                el(DText, null, 'Maximum stored messages — the oldest are dropped first. This is the size of your archive.'),
+                el(DInput, {
+                    placeholder: '300',
+                    placeholderTextColor: C.sub,
+                    defaultValue: String(S('maxStored')),
+                    onChangeText: (t: string) => {
+                        const n = parseInt(t, 10);
+                        if (!isNaN(n) && n >= 10 && n <= 10000) api?.jsonStorage?.set?.({ maxStored: n });
+                    },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
+                el(DText, null, 'Entries shown at once in the log below — “Load more” adds this many.'),
+                el(DInput, {
+                    placeholder: '100',
+                    placeholderTextColor: C.sub,
+                    defaultValue: String(S('logsPerPage')),
+                    onChangeText: (t: string) => {
+                        const n = parseInt(t, 10);
+                        if (!isNaN(n) && n >= 10 && n <= 1000) api?.jsonStorage?.set?.({ logsPerPage: n });
+                    },
+                    style: { padding: 8, color: C.text, backgroundColor: C.bg, borderRadius: 6 },
+                }),
+            ),
+            el(
+                RowGroup,
+                { title: 'Muted and DMs' },
+                sw('ignoreMutedChannels', 'Ignore muted channels', 'Overridden by the two always-log rules below'),
+                sw('ignoreMutedCategories', 'Ignore muted categories'),
+                sw('ignoreMutedGuilds', 'Ignore muted servers'),
+                sw('alwaysLogDirectMessages', 'Always log DMs', 'Direct messages are logged unless their ID is blacklisted'),
+                sw('alwaysLogCurrentChannel', 'Always log the open channel', 'Turn off if you want muted channels to stay silent'),
             ),
             el(
                 RowGroup,
@@ -2048,8 +2496,27 @@ function makeSettingsComponent() {
                   ),
             el(
                 RowGroup,
-                { title: 'Saved log (' + visible.length + ' shown)' },
-                el(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4 } }, tab('all', 'All'), tab('deleted', 'Deleted'), tab('edited', 'Edited'), tab('ghost', 'Ghost pings')),
+                { title: 'Saved log (' + Math.min(visible.length, limit || pageSize) + ' of ' + visible.length + ')' },
+                el(
+                    ScrollView,
+                    { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center' } },
+                    tab('all', 'All'),
+                    tab('deleted', 'Deleted'),
+                    tab('edited', 'Edited'),
+                    tab('ghost', 'Ghost pings'),
+                    el(
+                        Pressable,
+                        {
+                            onPress: () => api?.jsonStorage?.set?.({ sortNewest: !sortNewest }),
+                            style: { paddingVertical: 8, paddingHorizontal: 10 },
+                        },
+                        el(
+                            Text,
+                            { style: { color: C.sub, fontWeight: '700' } },
+                            sortNewest ? 'Newest ↓' : 'Oldest ↑',
+                        ),
+                    ),
+                ),
                 el(DInput, {
                     placeholder: 'Search author or text…',
                     placeholderTextColor: C.sub,
@@ -2059,7 +2526,7 @@ function makeSettingsComponent() {
                 }),
                 visible.length === 0
                     ? el(DText, null, 'Nothing logged yet. Deleted and edited messages will appear here.')
-                    : visible.slice(0, 200).map((m: LoggedMessage) => {
+                    : shown.map((m: LoggedMessage) => {
                           const isDel = m.ghostPing || m.status === 'deleted';
                           const statusColor = isDel ? C.deleted : C.edited;
                           return el(
@@ -2081,7 +2548,9 @@ function makeSettingsComponent() {
                                   '[' + (m.ghostPing ? 'GHOST PING' : m.status === 'deleted' ? 'DELETED' : 'EDITED') + '] ' + m.authorTag + ' — ' + new Date(m.timestamp).toLocaleString(),
                               ),
                               el(Text, { style: { color: C.text } }, m.content || '(no text content)'),
-                              m.attachments.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + ' attachment(s) saved as links'),
+                              m.attachments.length > 0 && cfg.logDeletedAttachments
+                                  ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.attachments.length + ' deleted attachment(s)')
+                                  : null,
                               m.savedImages ? el(Text, { style: { color: C.sub, fontSize: 12 } }, m.savedImages + ' image(s) saved to device') : null,
                               ...(m.savedImages && Image
                                   ? [
@@ -2099,7 +2568,14 @@ function makeSettingsComponent() {
                                         ),
                                     ]
                                   : []),
-                              m.edits.length > 0 && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Previous versions: ' + m.edits.join('  |  ')),
+                              ...(m.edits.length > 0 && cfg.showEditDiffs
+                                  ? m.edits
+                                        .map((h: string, i: number) =>
+                                            diffLine(String(h), String(m.edits[i + 1] ?? m.content), 'diff-' + i),
+                                        )
+                                        .filter(Boolean)
+                                  : []),
+                              m.edits.length > 0 && !cfg.showEditDiffs && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Previous versions: ' + m.edits.join('  |  ')),
                               el(
                                   Pressable,
                                   { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
@@ -2107,6 +2583,20 @@ function makeSettingsComponent() {
                               ),
                           );
                       }),
+                visible.length > shown.length
+                    ? el(
+                          Pressable,
+                          {
+                              onPress: () => setLimit((limit || pageSize) + pageSize),
+                              style: { padding: 10, alignItems: 'center' },
+                          },
+                          el(
+                              Text,
+                              { style: { color: C.text, fontWeight: '700' } },
+                              'Load ' + pageSize + ' more (' + (visible.length - shown.length) + ' remaining)',
+                          ),
+                      )
+                    : null,
             ),
             el(
                 View,
@@ -2115,6 +2605,11 @@ function makeSettingsComponent() {
                     Pressable,
                     { onPress: () => void exportLog(), style: { padding: 12, alignItems: 'center' } },
                     el(Text, { style: { fontWeight: 'bold', color: C.text } }, 'Copy log JSON to clipboard'),
+                ),
+                el(
+                    Pressable,
+                    { onPress: () => void importLog(), style: { padding: 12, alignItems: 'center' } },
+                    el(Text, { style: { fontWeight: 'bold', color: C.text } }, 'Import log JSON from clipboard (merges)'),
                 ),
                 el(
                     Pressable,
