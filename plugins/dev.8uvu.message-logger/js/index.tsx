@@ -34,7 +34,7 @@ let hostKind: 'next' | 'classic' = 'next';
 let startedAt: number | null = null;
 let lastStartError: string | null = null;
 let handlersRegistered = 0;
-const PLUGIN_VERSION = '1.7.0';
+const PLUGIN_VERSION = '1.7.1';
 
 // In-chat highlighting state (Vencord-style). deletedMessageMap holds the ids
 // Discord was told to keep visible via the MESSAGE_EDIT_FAILED_AUTOMOD
@@ -101,6 +101,9 @@ interface LoggedMessage {
     ghostPing: boolean;
     savedImages?: number;
     bot?: boolean;
+    // Set when the message was edited but no previous version could be found
+    // anywhere (it predates both the plugin load and the store's memory).
+    priorUnknown?: boolean;
 }
 
 const LOG_FILE = 'message-logger.json';
@@ -845,6 +848,49 @@ function getStore(name: string): any {
     return null;
 }
 
+// ---- Message lookup through Discord's own store ----------------------------
+//
+// Delete and update payloads carry no body, and MESSAGE_CREATE only fires for
+// messages that arrive while the plugin is running. For anything older than
+// that — a message sent before the plugin loaded, or before this app run —
+// Discord's MessageStore is the only source of the text. The interceptors run
+// before Discord's reducers replace or drop the message, so read it there.
+function storeMessage(channelId: string, id: string): any {
+    if (!channelId || !id) return null;
+    try {
+        return getMessageStore()?.getMessage?.(channelId, id) ?? null;
+    } catch {}
+    return null;
+}
+
+function recordFromMessage(message: any): AutomodRecord | undefined {
+    if (!message) return undefined;
+    const author = message.author ?? {};
+    return {
+        content: typeof message.content === 'string' ? message.content : '',
+        authorTag: author.globalName ?? author.global_name ?? author.username ?? 'Unknown',
+        bot: !!author.bot,
+    };
+}
+
+// Message copies read out of the store before Discord processed the dispatch,
+// keyed by message id and consumed by the matching delete/update handler.
+const pendingMessages = new Map<string, any>();
+function rememberPendingMessage(id: string, message: any) {
+    if (!id || !message?.id) return;
+    pendingMessages.set(id, message);
+    if (pendingMessages.size > 200) {
+        const oldest = pendingMessages.keys().next();
+        if (!oldest.done) pendingMessages.delete(oldest.value);
+    }
+}
+function takePendingMessage(id: string): any {
+    const found = pendingMessages.get(id);
+    if (found === undefined) return null;
+    pendingMessages.delete(id);
+    return found;
+}
+
 function channelGuildIdFor(channelId: string): string {
     try {
         const ch = getChannelStore()?.getChannel?.(channelId);
@@ -1377,9 +1423,15 @@ function handleDelete(payload: any) {
         seen.delete(id);
         return;
     }
+    // The delete payload carries no content at all, so for a message whose
+    // create we never saw the only source of its text is the copy the delete
+    // interceptor read before Discord's reducers dropped it (or the store, on
+    // hosts where the handler runs first).
+    const rescued = takePendingMessage(id) ?? storeMessage(channelId, id);
+    const fallback = rescued?.id ? rescued : payload?.message;
     const snap =
         seen.get(id) ??
-        snapshotOf(payload?.message ?? { id, channelId }, currentUserId());
+        snapshotOf(fallback?.id ? fallback : { id, channelId }, currentUserId());
     if (snap.attachments.length === 0 && Array.isArray(payload?.message?.embeds) && payload.message.embeds.length > 0) {
         snap.attachments = payload.message.embeds
             .map((e: any) => String(e?.image?.url ?? e?.image?.proxy_url ?? e?.thumbnail?.url ?? ''))
@@ -1429,8 +1481,18 @@ function handleUpdate(payload: any) {
     const message = payload?.message;
     if (!message?.id) return;
     rememberForHighlight(payload);
+    // Discord also dispatches MESSAGE_UPDATE for partial changes — link embeds
+    // resolving, pins, ... — and those payloads carry no `content` at all.
+    // Treating them as edits replaced the logged text with an empty string and
+    // invented history, so a content string is required before this is an edit.
+    if (typeof message.content !== 'string') return;
     const id = String(message.id);
+    const channelId = String(message.channelId ?? message.channel_id ?? '');
     const prev = seen.get(id);
+    // The version being replaced: our own snapshot if we saw the message, else
+    // the copy the interceptor read (or the store still holds) before the
+    // reducers ran.
+    const prior: any = takePendingMessage(id) ?? storeMessage(channelId, id);
     const snap = snapshotOf(message, currentUserId());
     if (!gateMessage(message, snap)) return;
     if (cfg.ignoreBots && snap.bot) return;
@@ -1444,18 +1506,27 @@ function handleUpdate(payload: any) {
     // Discord's MESSAGE_UPDATE often omits edited_timestamp — the content
     // change alone is a real edit. Requiring the timestamp was dropping all
     // edit history (the "only says EDITED" bug).
-    const isRealEdit = prevContent !== null && prevContent !== snap.content;
-    const priorHistory = prev?.editHistory ?? [];
-    if (isRealEdit && prevContent !== null) priorHistory.push(prevContent);
-    if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
-    if (!isRealEdit && !log[id]) return;
+    const known = prevContent !== null ? prevContent : typeof prior?.content === 'string' ? prior.content : null;
+    const isRealEdit = known !== null && known !== snap.content;
     const existing = log[id];
+    // Discord flags an edit itself. With no previous version available anywhere
+    // we still record the new text — honestly marked — rather than dropping the
+    // edit entirely, which is what happened for anything sent before the plugin
+    // started (nothing showed up in the log or in chat).
+    const flagged = !!(message.editedTimestamp ?? message.edited_timestamp ?? message.edited === true);
+    const unknownPriorEdit = known === null && flagged && !existing;
+    if (!isRealEdit && !unknownPriorEdit && !existing) return;
+    const priorHistory = prev?.editHistory ?? [];
+    if (isRealEdit) priorHistory.push(String(known));
+    if (priorHistory.length) snap.editHistory = priorHistory.slice(-10);
+    const edits = [...(existing?.edits ?? []), ...(isRealEdit ? [String(known)] : [])].slice(-10);
     log[id] = {
         ...snap,
         status: 'edited',
-        edits: [...(existing?.edits ?? []), ...(isRealEdit && prevContent !== null ? [prevContent] : [])].slice(-10),
+        edits,
         mentionsMe: snap.mentionsMe,
         ghostPing: existing?.ghostPing ?? false,
+        priorUnknown: edits.length === 0 && known === null ? true : undefined,
     } as LoggedMessage;
     prune(cfg.maxStored);
     void persistLog();
@@ -1597,7 +1668,11 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
                         // keepSelfDeletes=true: fall through to keep + paint.
                     }
                     if (inList(channelId, cfg.ignoredChannels)) return;
-                    const record = cachedRecordFor(id);
+                    // Read the message out of the store now, while it is still
+                    // there: it is what gives the kept row its real text.
+                    const stored = storeMessage(channelId, id);
+                    rememberPendingMessage(id, stored);
+                    const record = cachedRecordFor(id) ?? recordFromMessage(stored);
                     if (cfg.ignoreBots && record?.bot) return;
                     const authorId = seen.get(id)?.authorId ?? log[id]?.authorId;
                     if (cfg.ignoreSelf && authorId && authorId === currentUserId()) return;
@@ -1618,6 +1693,7 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
                     });
                     if (!kept.length) return;
                     for (const id of kept) {
+                        rememberPendingMessage(id, storeMessage(channelId, id));
                         markHighlightDeleted(id, channelId);
                         handleDeleteBulk({ ids: [id], channelId });
                     }
@@ -1636,9 +1712,19 @@ function installDeleteRewrite(dispatcher: any, addCleanup: (off: () => void) => 
                     return;
                 }
                 if (type === 'MESSAGE_UPDATE') {
-                    const id = String(payload?.message?.id ?? '');
-                    const channelId = String(payload?.message?.channelId ?? payload?.message?.channel_id ?? '');
+                    const raw = payload?.message;
+                    const id = String(raw?.id ?? '');
+                    const channelId = String(raw?.channelId ?? raw?.channel_id ?? '');
                     if (id && channelId && cfg.logEdits && !inList(channelId, cfg.ignoredChannels)) {
+                        // Capture the version Discord is about to replace while
+                        // the store still holds it. This is what makes an edit
+                        // of a message the plugin never saw show up at all.
+                        if (typeof raw?.content === 'string') {
+                            const stored = storeMessage(channelId, id);
+                            if (stored && typeof stored.content === 'string' && stored.content !== raw.content) {
+                                rememberPendingMessage(id, stored);
+                            }
+                        }
                         markHighlightEdited(id, channelId);
                     }
                     return;
@@ -1728,9 +1814,16 @@ function paintRow(row: any, processColor: (c: any) => any) {
             const block = history
                 .map((h, i) => changeLine(String(h), String(versions[i + 1] ?? current)) + ' (edited)')
                 .join('\n');
-            if (block && !msg.content.includes(block)) {
-                msg.content = block + '\n' + msg.content;
-            }
+            // Drop any block an earlier paint added (every generated line ends
+            // with the marker) before prepending the fresh one. Keying on the
+            // block text alone duplicated the whole history on the second edit
+            // when the row object was reused across renders.
+            const lines = msg.content.split('\n');
+            let start = 0;
+            while (start < history.length && start < lines.length - 1 && / \(edited\)$/.test(lines[start])) start++;
+            const body = lines.slice(start).join('\n');
+            const painted = body ? block + '\n' + body : block;
+            if (block && painted !== msg.content) msg.content = painted;
         }
     }
 }
@@ -2005,7 +2098,7 @@ function makeSettingsComponent() {
         const [filter, setFilter] = React.useState('all');
         const [query, setQuery] = React.useState('');
         const [refreshTick, setRefreshTick] = React.useState(0);
-        const [selectedUser, setSelectedUser] = React.useState<string | null>(null);
+        const [selectedUser, setSelectedUser] = React.useState(null as string | null);
         const [limit, setLimit] = React.useState(0); // 0 = the configured page size
 
         // Effective value of a setting: stored value, else the plugin default.
@@ -2576,6 +2669,9 @@ function makeSettingsComponent() {
                                         .filter(Boolean)
                                   : []),
                               m.edits.length > 0 && !cfg.showEditDiffs && el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Previous versions: ' + m.edits.join('  |  ')),
+                              m.status === 'edited' && m.edits.length === 0
+                                  ? el(Text, { style: { color: C.sub, fontSize: 12 } }, 'Edited — previous version not recorded')
+                                  : null,
                               el(
                                   Pressable,
                                   { onPress: () => void removeEntry(m.id), style: { paddingVertical: 4 } },
@@ -2777,13 +2873,15 @@ function getMessageIdsInChannel(channelId: string): Set<string> {
 
 function getMessageStore(): any {
     try {
-        const s: any = (typeof revenge !== 'undefined' && (revenge as any)?.discord?.flux?.Stores?.MessageStore) || null;
-        if (s) return s;
+        const s: any = getStore('MessageStore');
+        if (s?.getMessage) return s;
     } catch {}
     try {
         const metro = getMetro();
-        const s = metro?.findByStoreName?.('MessageStore') ?? metro?.findByProps?.('getMessage', 'getMessages');
-        if (s) return s;
+        const byName = metro?.findByStoreName?.('MessageStore');
+        if (byName?.getMessage) return byName;
+        const byProps = metro?.findByProps?.('getMessage', 'getMessages');
+        if (byProps?.getMessage) return byProps;
     } catch {}
     return null;
 }

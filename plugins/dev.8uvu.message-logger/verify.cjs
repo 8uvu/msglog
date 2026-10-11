@@ -23,6 +23,9 @@ function makeHarness(initialSettings = {}, options = {}) {
         mutedChannels: options.mutedChannels ?? [],
         mutedCategories: options.mutedCategories ?? [],
         mutedGuilds: options.mutedGuilds ?? [],
+        // Discord's MessageStore: the only source of a message the plugin never
+        // saw a MESSAGE_CREATE for. Keyed `channelId:messageId`.
+        storeMessages: { ...(options.storeMessages ?? {}) },
     };
     const clipboard = {
         last: null,
@@ -48,6 +51,21 @@ function makeHarness(initialSettings = {}, options = {}) {
         isChannelMuted: (id) => state.mutedChannels.includes(id),
         isCategoryMuted: (id) => state.mutedCategories.includes(id),
         isGuildMuted: (id) => state.mutedGuilds.includes(id),
+    };
+
+    // Stands in for Discord's MessageStore — the plugin reads it pre-reducer,
+    // so `drop`/`set` below let a test simulate what the reducers do.
+    const messageStore = {
+        getMessage: (channelId, id) => state.storeMessages[channelId + ':' + id] ?? null,
+        getMessages: () => ({}),
+    };
+    const storeApi = {
+        set(channelId, msg) {
+            state.storeMessages[channelId + ':' + msg.id] = msg;
+        },
+        drop(channelId, id) {
+            delete state.storeMessages[channelId + ':' + id];
+        },
     };
 
     const store = [];
@@ -138,8 +156,10 @@ function makeHarness(initialSettings = {}, options = {}) {
                 ChannelStore: channelStore,
                 SelectedChannelStore: selectedChannelStore,
                 UserGuildSettingsStore: userGuildSettingsStore,
+                MessageStore: messageStore,
             })[name] ?? null,
         findByProps: (...props) => {
+            if (props.includes('getMessage') && props.includes('getMessages')) return messageStore;
             if (props.includes('deleteMessage')) return null; // no self-delete bypass in this harness
             if (props.includes('updateRows')) {
                 state.modules.updateRows ??= {
@@ -164,6 +184,7 @@ function makeHarness(initialSettings = {}, options = {}) {
                     ChannelStore: channelStore,
                     SelectedChannelStore: selectedChannelStore,
                     UserGuildSettingsStore: userGuildSettingsStore,
+                    MessageStore: messageStore,
                 },
             },
             native: { FileModule: fileModule },
@@ -182,7 +203,7 @@ function makeHarness(initialSettings = {}, options = {}) {
         logger: host.logger,
     };
 
-    return { host, api, state, storage, clipboard, React: { reset: () => { cursor = 0; } }, channels };
+    return { host, api, state, storage, clipboard, store: storeApi, React: { reset: () => { cursor = 0; } }, channels };
 }
 
 async function boot(initialSettings = {}, options = {}) {
@@ -545,6 +566,131 @@ async function scenarioFilters() {
     await h.instance.stop();
 }
 
+// The reported bug: an edited message did not show up. MESSAGE_CREATE only
+// fires for messages that arrive while the plugin is running, so editing one of
+// those older messages used to record nothing at all — no log entry, no inline
+// history, no visible change in chat.
+async function scenarioUnseenMessageEdits() {
+    const older = {
+        id: 'old-1',
+        channelId: 'chan-1',
+        author: { id: '7', username: 'Zed' },
+        content: 'original text',
+        timestamp: new Date().toISOString(),
+        mentions: [],
+    };
+    const h = await boot({}, { storeMessages: { 'chan-1:old-1': older } });
+    const update = handler(h, 'MESSAGE_UPDATE');
+    const edited = message({ id: 'old-1', content: 'edited text' });
+
+    // The interceptor runs before Discord's reducers, then the store is
+    // replaced — exactly what happens on device.
+    intercept(h, { type: 'MESSAGE_UPDATE', message: edited });
+    h.store.drop('chan-1', 'old-1');
+    update({ message: edited });
+    await tick();
+
+    const log = logged(h);
+    check('edit of a message the plugin never saw was not logged', log['old-1']?.status === 'edited', JSON.stringify(log['old-1']));
+    check('rescued edit lost the new text', log['old-1']?.content === 'edited text', JSON.stringify(log['old-1']?.content));
+    check('rescued edit lost its previous version', log['old-1']?.edits?.[0] === 'original text', JSON.stringify(log['old-1']?.edits));
+    const rows = paint(h, [{ type: 1, message: { id: 'old-1', channelId: 'chan-1', content: 'edited text' } }]);
+    check(
+        'rescued edit is not visible inline in chat',
+        rows[0]?.message.content === 'original text (edited)\nedited text',
+        JSON.stringify(rows[0]?.message.content),
+    );
+    await h.instance.stop();
+
+    // No previous version anywhere: still log the edit, but say so honestly.
+    const bare = await boot();
+    const flagged = message({ id: 'gone-1', content: 'new text', editedTimestamp: new Date().toISOString() });
+    intercept(bare, { type: 'MESSAGE_UPDATE', message: flagged });
+    handler(bare, 'MESSAGE_UPDATE')({ message: flagged });
+    await tick();
+    check('flagged edit with no previous version was dropped', logged(bare)['gone-1']?.status === 'edited', JSON.stringify(logged(bare)['gone-1']));
+    check('edit with no previous version was not flagged', logged(bare)['gone-1']?.priorUnknown === true, JSON.stringify(logged(bare)['gone-1']));
+    const ui = await renderSettings(bare);
+    check('viewer does not mention the missing previous version', JSON.stringify(ui).includes('previous version not recorded'), 'no marker');
+    await bare.instance.stop();
+}
+
+// MESSAGE_UPDATE is also dispatched for changes that are not edits — most
+// commonly a link embed resolving. Those payloads have no `content`, and
+// treating them as edits wiped the logged text and invented history.
+async function scenarioPartialUpdates() {
+    const h = await boot();
+    const create = handler(h, 'MESSAGE_CREATE');
+    const update = handler(h, 'MESSAGE_UPDATE');
+
+    create({ message: message({ id: 'emb-1', content: 'no embeds yet' }) });
+    const resolved = { id: 'emb-1', channelId: 'chan-1', embeds: [{ url: 'https://example.com' }] };
+    intercept(h, { type: 'MESSAGE_UPDATE', message: resolved });
+    update({ message: resolved });
+    await tick();
+    check('embed-only update was logged as an edit', !logged(h)['emb-1'], JSON.stringify(logged(h)['emb-1']));
+
+    // A message that is already logged must keep its content too.
+    create({ message: message({ id: 'emb-2', content: 'still here' }) });
+    intercept(h, { type: 'MESSAGE_DELETE', id: 'emb-2', channelId: 'chan-1' });
+    await tick();
+    const partial = { id: 'emb-2', channelId: 'chan-1', embeds: [{ image: { url: 'https://example.com/x.png' } }] };
+    intercept(h, { type: 'MESSAGE_UPDATE', message: partial });
+    update({ message: partial });
+    await tick();
+    check('partial update clobbered the logged content', logged(h)['emb-2']?.content === 'still here', JSON.stringify(logged(h)['emb-2']));
+    check('partial update rewrote the logged status', logged(h)['emb-2']?.status === 'deleted', JSON.stringify(logged(h)['emb-2']?.status));
+    await h.instance.stop();
+}
+
+// A delete payload has no body either, so the same store rescue decides whether
+// the kept row and the log entry show the message or the placeholder.
+async function scenarioUnseenMessageDeletes() {
+    const older = {
+        id: 'ghost-1',
+        channelId: 'chan-1',
+        author: { id: '7', username: 'Zed' },
+        content: 'never seen by the logger',
+        timestamp: new Date().toISOString(),
+    };
+    const h = await boot({}, { storeMessages: { 'chan-1:ghost-1': older } });
+    const rewrite = intercept(h, { type: 'MESSAGE_DELETE', id: 'ghost-1', channelId: 'chan-1' });
+    await tick();
+    check('delete of an unseen message logged no text', logged(h)['ghost-1']?.content === 'never seen by the logger', JSON.stringify(logged(h)['ghost-1']));
+    check('delete of an unseen message lost its author', logged(h)['ghost-1']?.authorTag === 'Zed', JSON.stringify(logged(h)['ghost-1']?.authorTag));
+    check('automod rewrite lost the rescued content', rewrite?.errorResponseBody?.message === 'never seen by the logger', JSON.stringify(rewrite?.errorResponseBody));
+    const rows = paint(h, [{ type: 1, message: { id: 'ghost-1', channelId: 'chan-1', content: 'never seen by the logger' } }]);
+    check('rescued delete was not kept red', rows[0]?.message.textColor === '#f04747', JSON.stringify(rows[0]?.message));
+    await h.instance.stop();
+}
+
+// Two edits in a row, with a row object Discord re-renders while it still
+// carries the previous paint's block.
+async function scenarioRepeatedEdits() {
+    const h = await boot();
+    const create = handler(h, 'MESSAGE_CREATE');
+    const update = handler(h, 'MESSAGE_UPDATE');
+    create({ message: message({ id: 'multi-1', content: 'v1' }) });
+    const v2 = message({ id: 'multi-1', content: 'v2' });
+    update({ message: v2 });
+    intercept(h, { type: 'MESSAGE_UPDATE', message: v2 });
+    const v3 = message({ id: 'multi-1', content: 'v3' });
+    update({ message: v3 });
+    intercept(h, { type: 'MESSAGE_UPDATE', message: v3 });
+
+    check('second edit lost history', JSON.stringify(logged(h)['multi-1']?.edits) === JSON.stringify(['v1', 'v2']), JSON.stringify(logged(h)['multi-1']?.edits));
+    const fresh = paint(h, [{ type: 1, message: { id: 'multi-1', channelId: 'chan-1', content: 'v3' } }]);
+    check('inline history after two edits', fresh[0]?.message.content === 'v1 (edited)\nv2 (edited)\nv3', JSON.stringify(fresh[0]?.message.content));
+
+    const reused = { type: 1, message: { id: 'multi-1', channelId: 'chan-1', content: 'v1 (edited)\nv3' } };
+    const stacked = paint(h, [reused])[0]?.message.content;
+    check('repainting a row that already had a block stacked a duplicate', stacked === 'v1 (edited)\nv2 (edited)\nv3', JSON.stringify(stacked));
+
+    const same = paint(h, [reused])[0]?.message.content;
+    check('repaint was not idempotent', same === 'v1 (edited)\nv2 (edited)\nv3', JSON.stringify(same));
+    await h.instance.stop();
+}
+
 async function main() {
     await scenarioDefaults();
     await scenarioOverlayAndDiffs();
@@ -552,13 +698,17 @@ async function main() {
     await scenarioImportExport();
     await scenarioPaging();
     await scenarioFilters();
+    await scenarioUnseenMessageEdits();
+    await scenarioPartialUpdates();
+    await scenarioUnseenMessageDeletes();
+    await scenarioRepeatedEdits();
 
     if (problems.length) {
         console.error('VERIFY FAILED: ' + problems.length + ' problem(s)');
         for (const problem of problems) console.error('  - ' + problem);
         process.exit(1);
     }
-    console.log('VERIFY OK: defaults, filters, delete styles, edit diffs, viewer, paging, import/export and persistence');
+    console.log('VERIFY OK: defaults, filters, delete styles, edit diffs, viewer, paging, import/export, store rescue and persistence');
 }
 
 main().catch((error) => {
