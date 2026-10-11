@@ -25,6 +25,7 @@ __export(index_exports, {
   handlePresence: () => handlePresence
 });
 module.exports = __toCommonJS(index_exports);
+var PLUGIN_VERSION = "1.5.0";
 function getMetro() {
   var _a, _b, _c, _d, _e;
   try {
@@ -324,6 +325,253 @@ function seedOnlineFromStore(api) {
     return 0;
   }
 }
+var presenceActionTypes = /* @__PURE__ */ new Set();
+var presenceCensusInstalled = false;
+var ingestedPayloads = /* @__PURE__ */ new WeakSet();
+function looksLikePresence(type) {
+  return typeof type === "string" && /presence/i.test(type);
+}
+function censusDispatch(payload) {
+  var _a;
+  if (!looksLikePresence(String((_a = payload == null ? void 0 : payload.type) != null ? _a : ""))) return;
+  if (presenceActionTypes.size < 12) presenceActionTypes.add(String(payload.type));
+  receivePresence(payload);
+}
+function installFluxCensus(api) {
+  var _a, _b;
+  if (presenceCensusInstalled) return true;
+  const flux = getFlux(api);
+  try {
+    if (typeof (flux == null ? void 0 : flux.onAnyFluxEventDispatched) === "function") {
+      const off = flux.onAnyFluxEventDispatched(censusDispatch);
+      registerPresenceCleanup(typeof off === "function" ? off : void 0);
+      presenceCensusInstalled = true;
+      return true;
+    }
+  } catch (e) {
+    hostError("flux census failed", e);
+  }
+  try {
+    const raw = (_b = (_a = getDispatcher()) != null ? _a : flux == null ? void 0 : flux.dispatcher) != null ? _b : flux;
+    if (typeof (raw == null ? void 0 : raw.addInterceptor) === "function") {
+      const off = raw.addInterceptor((payload) => {
+        censusDispatch(payload);
+      });
+      registerPresenceCleanup(off);
+      presenceCensusInstalled = true;
+      return true;
+    }
+  } catch (e) {
+    hostError("dispatcher census failed", e);
+  }
+  return false;
+}
+var GATEWAY_INBOUND_METHODS = [
+  "_handleMessage",
+  "_handleMessageInternal",
+  "_handleSocketMessage",
+  "_handleIncomingMessage",
+  "handleMessage",
+  "handleSocketMessage",
+  "onMessage",
+  "onSocketMessage",
+  "_handleDispatch",
+  "handleDispatch",
+  "_handlePayload",
+  "handlePayload",
+  "_handleEvent",
+  "handleEvent",
+  "processMessage",
+  "_processMessage"
+];
+var gatewayPatches = [];
+var gatewayHandlerCalls = 0;
+var gatewayPresenceFrames = 0;
+var gatewayAttempts = 0;
+function gatewayCandidates() {
+  var _a, _b, _c;
+  const out = [];
+  const owners = /* @__PURE__ */ new Set();
+  const metro = getMetro();
+  const push = (owner, describe) => {
+    if (!owner || owners.has(owner)) return;
+    owners.add(owner);
+    for (const method of GATEWAY_INBOUND_METHODS) {
+      try {
+        if (typeof owner[method] === "function") out.push({ owner, method, describe: describe + "." + method });
+      } catch {
+      }
+    }
+  };
+  try {
+    push((_a = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _a.call(metro, "_doIdentify"), "socket");
+    push((_b = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _b.call(metro, "connect", "getGatewayIntents"), "socket");
+  } catch {
+  }
+  for (const method of GATEWAY_INBOUND_METHODS) {
+    try {
+      push((_c = metro == null ? void 0 : metro.findByProps) == null ? void 0 : _c.call(metro, method), "gateway");
+    } catch {
+    }
+  }
+  return out;
+}
+function ingestGatewayFrame(frame) {
+  var _a, _b, _c, _d;
+  let data = frame;
+  if (typeof frame === "string") {
+    if (!frame.includes("PRESENCE")) return;
+    try {
+      data = JSON.parse(frame);
+    } catch {
+      return;
+    }
+  } else if (frame && typeof frame.data === "string") {
+    if (!frame.data.includes("PRESENCE")) return;
+    try {
+      data = JSON.parse(frame.data);
+    } catch {
+      return;
+    }
+  }
+  const type = String((_b = (_a = data == null ? void 0 : data.t) != null ? _a : data == null ? void 0 : data.type) != null ? _b : "");
+  if (!looksLikePresence(type)) return;
+  gatewayPresenceFrames++;
+  receivePresence((_d = (_c = data == null ? void 0 : data.d) != null ? _c : data == null ? void 0 : data.payload) != null ? _d : data);
+}
+function installGatewaySniff() {
+  if (gatewayPatches.length) return gatewayPatches.length;
+  gatewayAttempts++;
+  for (const candidate of gatewayCandidates()) {
+    try {
+      const original = candidate.owner[candidate.method];
+      const wrapped = function(...args) {
+        try {
+          gatewayHandlerCalls++;
+          for (const arg of args) ingestGatewayFrame(arg);
+        } catch {
+        }
+        return original.apply(this, args);
+      };
+      candidate.owner[candidate.method] = wrapped;
+      gatewayPatches.push({ ...candidate, wrapped, original });
+    } catch {
+    }
+  }
+  return gatewayPatches.length;
+}
+function restoreGatewaySniff() {
+  while (gatewayPatches.length) {
+    const patch = gatewayPatches.pop();
+    try {
+      if (patch && patch.owner[patch.method] === patch.wrapped) patch.owner[patch.method] = patch.original;
+    } catch {
+    }
+  }
+}
+var POLL_MS = 2e4;
+var GATEWAY_RETRY_LIMIT = 12;
+var pollTimer = null;
+var storePolls = 0;
+var storeSeenOnline = null;
+var presenceStoreLabel = null;
+var lastProbeReport = "";
+function presenceStore(api) {
+  var _a, _b, _c;
+  const found = (_c = (_b = (_a = findStore("PresenceStore", ["getStatus", "getUserIds"], api)) != null ? _a : findStore("PresenceStore", ["getStatus", "getActivities"], api)) != null ? _b : findStore("PresenceStore", ["getUserIds"], api)) != null ? _c : findStore("PresenceStore", ["getStatus"], api);
+  if (found && !presenceStoreLabel) {
+    const methods = ["getStatus", "getUserIds", "getOnlineUserIds", "getOnlineFriendIds", "getActivities"].filter(
+      (m) => typeof found[m] === "function"
+    );
+    presenceStoreLabel = "PresenceStore" + (methods.length ? " (" + methods.join(", ") + ")" : " (no known methods)");
+  }
+  return found;
+}
+function readOnlineSet(store) {
+  var _a, _b, _c;
+  for (const method of ["getOnlineUserIds", "getOnlineFriendIds", "getUserIds"]) {
+    try {
+      const value = (_a = store == null ? void 0 : store[method]) == null ? void 0 : _a.call(store);
+      if (Array.isArray(value)) return new Set(value.map(String));
+      if (value && typeof value.size === "number") return new Set(Array.from(value).map(String));
+    } catch {
+    }
+  }
+  try {
+    const map = (_c = (_b = store == null ? void 0 : store.getState) == null ? void 0 : _b.call(store)) == null ? void 0 : _c.clientStatuses;
+    if (map && typeof map === "object") {
+      const ids = /* @__PURE__ */ new Set();
+      for (const [id, status] of Object.entries(map)) {
+        if (status && Object.keys(status).length > 0) ids.add(String(id));
+      }
+      if (ids.size) return ids;
+    }
+  } catch {
+  }
+  return null;
+}
+function readStatusFor(store, userId) {
+  var _a;
+  try {
+    const raw = (_a = store == null ? void 0 : store.getStatus) == null ? void 0 : _a.call(store, userId);
+    const status = typeof raw === "string" ? raw.toLowerCase() : null;
+    if (!status || status === "unknown") return null;
+    return status;
+  } catch {
+  }
+  return null;
+}
+function pollPresenceStore(api) {
+  storePolls++;
+  const store = presenceStore(api);
+  if (!store) return 0;
+  let departures = 0;
+  const online = readOnlineSet(store);
+  if (online) {
+    for (const id of online) handlePresence({ userId: id, status: "online" });
+    if (storeSeenOnline) {
+      for (const id of storeSeenOnline) {
+        if (!online.has(id) && handlePresence({ userId: id, status: "offline" })) departures++;
+      }
+    }
+    storeSeenOnline = online;
+    return departures;
+  }
+  for (const id of Array.from(seenOnlineAt.keys())) {
+    const status = readStatusFor(store, id);
+    if (status && handlePresence({ userId: id, status })) departures++;
+  }
+  return departures;
+}
+function startPresencePoll(api) {
+  stopPresencePoll();
+  try {
+    pollPresenceStore(api);
+  } catch {
+  }
+  pollTimer = setInterval(() => {
+    try {
+      if (!gatewayPatches.length && gatewayAttempts < GATEWAY_RETRY_LIMIT) installGatewaySniff();
+      pollPresenceStore(api);
+    } catch {
+    }
+  }, POLL_MS);
+  if (typeof (pollTimer == null ? void 0 : pollTimer.unref) === "function") pollTimer.unref();
+}
+function stopPresencePoll() {
+  if (pollTimer) {
+    try {
+      clearInterval(pollTimer);
+    } catch {
+    }
+    pollTimer = null;
+  }
+}
+function probeReport() {
+  const store = presenceStore();
+  const methods = store ? ["getStatus", "getUserIds", "getOnlineUserIds", "getOnlineFriendIds", "getActivities"].filter((m) => typeof (store == null ? void 0 : store[m]) === "function") : [];
+  return "LastOnlineTracker " + PLUGIN_VERSION + " probe \u2014 flux: " + (presenceCensusInstalled ? "census on" : "no census") + " \xB7 presence actions seen: " + (presenceActionTypes.size ? Array.from(presenceActionTypes).join(",") : "none") + " \xB7 gateway: " + gatewayPatches.length + " handler(s), " + gatewayHandlerCalls + " call(s), " + gatewayPresenceFrames + " presence frame(s) \xB7 store: " + (store ? methods.join(",") || "found, no known methods" : "not found") + " \xB7 polls: " + storePolls + " \xB7 events: " + presenceEventsSeen + " \xB7 departures: " + departuresRecorded;
+}
 var PRESENCE_EVENTS = ["PRESENCE_UPDATE", "PRESENCE_UPDATES"];
 var presenceCleanups = [];
 var cleanupApi = null;
@@ -338,6 +586,10 @@ function registerPresenceCleanup(off) {
 }
 function receivePresence(payload) {
   var _a, _b, _c, _d, _e;
+  if (payload && typeof payload === "object") {
+    if (ingestedPayloads.has(payload)) return;
+    ingestedPayloads.add(payload);
+  }
   const updates = Array.isArray(payload == null ? void 0 : payload.updates) ? payload.updates : Array.isArray(payload == null ? void 0 : payload.presences) ? payload.presences : Array.isArray(payload == null ? void 0 : payload.users) ? payload.users : Array.isArray(payload) ? payload : [payload];
   for (const item of updates) {
     const id = (_c = (_b = (_a = item == null ? void 0 : item.user) == null ? void 0 : _a.id) != null ? _b : item == null ? void 0 : item.userId) != null ? _c : item == null ? void 0 : item.user_id;
@@ -436,11 +688,17 @@ async function startPlugin(api) {
   } catch (e) {
     hostError("restore lastSeen failed", e);
   }
-  if (!subscribePresence(api)) hostError("no presence event API found; tracking is inactive");
+  const named = subscribePresence(api);
+  const census = installFluxCensus(api);
+  const gateway = installGatewaySniff();
   seedOnlineFromStore(api);
+  startPresencePoll(api);
+  if (!named && !census && !gateway) hostError("no presence surface found; tracking is inactive");
 }
 async function stopNext() {
   unsubscribePresence();
+  stopPresencePoll();
+  restoreGatewaySniff();
   cleanupFns.forEach((f) => {
     try {
       f();
@@ -635,8 +893,46 @@ function buildSettingsComponent(api) {
         })) : [el(InfoRow, {
           key: "empty",
           label: "No departures recorded yet",
-          subLabel: tracking ? "Tracking is active; this list fills as friends go offline." : "Tracking is inactive: presence events are not reaching the plugin."
+          subLabel: tracking ? "Tracking is active; this list fills as friends go offline." : "Tracking is inactive \u2014 open Detection below to see which presence source this build exposes."
         })]
+      ),
+      el(
+        Group,
+        { title: "Detection", description: "Which presence sources this build actually exposes. Nothing here means the list cannot fill." },
+        el(InfoRow, {
+          label: "Version " + PLUGIN_VERSION,
+          subLabel: "If this is not the version you installed, the new build did not load."
+        }),
+        el(InfoRow, {
+          label: "Flux presence listeners",
+          subLabel: presenceCleanups.length ? "installed (" + (presenceCensusInstalled ? "watching every dispatch" : "named events only") + ")" : "not installed \u2014 this host exposes no flux hook"
+        }),
+        el(InfoRow, {
+          label: "Presence actions seen",
+          subLabel: presenceActionTypes.size ? Array.from(presenceActionTypes).join(", ") : "none yet \u2014 presence may not be dispatched to plugins on this build"
+        }),
+        el(InfoRow, {
+          label: "Gateway socket",
+          subLabel: gatewayPatches.length ? gatewayPatches.length + " handler(s) watched \xB7 " + gatewayHandlerCalls + " call(s) \xB7 " + gatewayPresenceFrames + " presence frame(s)" : "no inbound handler found" + (gatewayAttempts >= GATEWAY_RETRY_LIMIT ? " (gave up)" : " (still retrying)")
+        }),
+        el(InfoRow, {
+          label: "Presence store",
+          subLabel: presenceStoreLabel != null ? presenceStoreLabel : "not found" + (pollTimer ? " \xB7 polling every " + Math.round(POLL_MS / 1e3) + "s" : " \xB7 polling off")
+        }),
+        el(InfoRow, {
+          label: "Run presence probe",
+          subLabel: "Re-check every source above now",
+          onPress: () => {
+            presenceStoreLabel = null;
+            installFluxCensus(settingsApi);
+            if (!gatewayPatches.length) installGatewaySniff();
+            pollPresenceStore(settingsApi);
+            lastProbeReport = probeReport();
+            toast(lastProbeReport);
+            settingsChangedCb == null ? void 0 : settingsChangedCb();
+          }
+        }),
+        lastProbeReport ? el(InfoRow, { label: "Last probe", subLabel: lastProbeReport }) : null
       ),
       el(
         Group,
@@ -686,7 +982,25 @@ __instance.__engine = {
     if (patch && typeof patch === "object") Object.assign(cfg, patch);
   },
   MIN_ONLINE_MS,
-  getDiagnostics: () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt })
+  getDiagnostics: () => ({
+    subscribed: presenceCleanups.length > 0,
+    eventsSeen: presenceEventsSeen,
+    departuresRecorded,
+    lastEventAt: lastPresenceEventAt,
+    censusInstalled: presenceCensusInstalled,
+    presenceActionTypes: Array.from(presenceActionTypes),
+    gatewayHandlers: gatewayPatches.length,
+    gatewayHandlerCalls,
+    gatewayPresenceFrames,
+    storeLabel: presenceStoreLabel,
+    storePolls,
+    polling: !!pollTimer
+  }),
+  probeReport,
+  pollPresenceStore,
+  installGatewaySniff,
+  ingestGatewayFrame,
+  censusDispatch
 };
 if (typeof plugin === "function") {
   __instance = plugin(__instance);
