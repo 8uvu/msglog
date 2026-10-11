@@ -13,7 +13,7 @@
 //   - Toasts via ToastActionCreators.open (+ ToastAndroid fallback).
 //   - Dispatcher subscriptions are removed on stop().
 
-const PLUGIN_VERSION = '1.4.0';
+const PLUGIN_VERSION = '1.5.0';
 
 // ---- Host lookups (lazy) -------------------------------------------------------
 
@@ -317,6 +317,285 @@ function seedOnlineFromStore(api?: any): number {
     }
 }
 
+// ---- Presence action census ----------------------------------------------------------
+//
+// Subscribing to two guessed action names assumes this client dispatches those
+// names as flux actions. Public sources do not confirm that for the React
+// Native build (or that it dispatches presence at all), and a wrong guess fails
+// silently — which is exactly how "the tracker does nothing" happens. So watch
+// *every* dispatch for anything presence-shaped: either the events arrive under
+// a name nobody guessed, or the plugin can say for certain that this build never
+// dispatches presence, instead of staying quiet about it.
+
+const presenceActionTypes = new Set<string>();
+let presenceCensusInstalled = false;
+// The same payload can reach us twice (named listener + census); ingest once.
+const ingestedPayloads = new WeakSet<object>();
+
+function looksLikePresence(type: string): boolean {
+    return typeof type === 'string' && /presence/i.test(type);
+}
+
+function censusDispatch(payload: any) {
+    if (!looksLikePresence(String(payload?.type ?? ''))) return;
+    if (presenceActionTypes.size < 12) presenceActionTypes.add(String(payload.type));
+    receivePresence(payload);
+}
+
+function installFluxCensus(api?: any): boolean {
+    if (presenceCensusInstalled) return true;
+    const flux: any = getFlux(api);
+    try {
+        if (typeof flux?.onAnyFluxEventDispatched === 'function') {
+            const off = flux.onAnyFluxEventDispatched(censusDispatch);
+            registerPresenceCleanup(typeof off === 'function' ? off : undefined);
+            presenceCensusInstalled = true;
+            return true;
+        }
+    } catch (e) {
+        hostError('flux census failed', e);
+    }
+    try {
+        const raw: any = getDispatcher() ?? flux?.dispatcher ?? flux;
+        if (typeof raw?.addInterceptor === 'function') {
+            const off = raw.addInterceptor((payload: any) => {
+                censusDispatch(payload);
+            });
+            registerPresenceCleanup(off);
+            presenceCensusInstalled = true;
+            return true;
+        }
+    } catch (e) {
+        hostError('dispatcher census failed', e);
+    }
+    return false;
+}
+
+// ---- Gateway frame sniffing -----------------------------------------------------------
+//
+// The path that does not depend on the client turning anything into a flux
+// action: read presence frames off the socket as they arrive. Method names
+// differ between builds and no public source pins them down, so candidates are
+// probed at runtime — and every patch only OBSERVES. The original is always
+// called with its own `this` and arguments, and its result is returned
+// untouched, so a wrong guess cannot break the gateway.
+
+const GATEWAY_INBOUND_METHODS = [
+    '_handleMessage', '_handleMessageInternal', '_handleSocketMessage', '_handleIncomingMessage',
+    'handleMessage', 'handleSocketMessage', 'onMessage', 'onSocketMessage',
+    '_handleDispatch', 'handleDispatch', '_handlePayload', 'handlePayload',
+    '_handleEvent', 'handleEvent', 'processMessage', '_processMessage',
+];
+
+let gatewayPatches: { owner: any; method: string; wrapped: any; original: any; describe: string }[] = [];
+let gatewayHandlerCalls = 0;
+let gatewayPresenceFrames = 0;
+let gatewayAttempts = 0;
+
+function gatewayCandidates(): { owner: any; method: string; describe: string }[] {
+    const out: { owner: any; method: string; describe: string }[] = [];
+    const owners = new Set<any>();
+    const metro = getMetro();
+    const push = (owner: any, describe: string) => {
+        if (!owner || owners.has(owner)) return;
+        owners.add(owner);
+        for (const method of GATEWAY_INBOUND_METHODS) {
+            try {
+                if (typeof owner[method] === 'function') out.push({ owner, method, describe: describe + '.' + method });
+            } catch {}
+        }
+    };
+    try {
+        // The socket class: the same area the spoofer patches for identify.
+        push(metro?.findByProps?.('_doIdentify'), 'socket');
+        push(metro?.findByProps?.('connect', 'getGatewayIntents'), 'socket');
+    } catch {}
+    for (const method of GATEWAY_INBOUND_METHODS) {
+        try {
+            push(metro?.findByProps?.(method), 'gateway');
+        } catch {}
+    }
+    return out;
+}
+
+function ingestGatewayFrame(frame: any) {
+    let data: any = frame;
+    if (typeof frame === 'string') {
+        // Cheap filter first: only parse what can possibly be a presence frame.
+        if (!frame.includes('PRESENCE')) return;
+        try {
+            data = JSON.parse(frame);
+        } catch {
+            return;
+        }
+    } else if (frame && typeof frame.data === 'string') {
+        if (!frame.data.includes('PRESENCE')) return;
+        try {
+            data = JSON.parse(frame.data);
+        } catch {
+            return;
+        }
+    }
+    const type = String(data?.t ?? data?.type ?? '');
+    if (!looksLikePresence(type)) return;
+    gatewayPresenceFrames++;
+    receivePresence(data?.d ?? data?.payload ?? data);
+}
+
+function installGatewaySniff(): number {
+    if (gatewayPatches.length) return gatewayPatches.length;
+    gatewayAttempts++;
+    for (const candidate of gatewayCandidates()) {
+        try {
+            const original = candidate.owner[candidate.method];
+            const wrapped = function (this: any, ...args: any[]) {
+                try {
+                    gatewayHandlerCalls++;
+                    for (const arg of args) ingestGatewayFrame(arg);
+                } catch {}
+                return original.apply(this, args);
+            };
+            candidate.owner[candidate.method] = wrapped;
+            gatewayPatches.push({ ...candidate, wrapped, original });
+        } catch {}
+    }
+    return gatewayPatches.length;
+}
+
+function restoreGatewaySniff() {
+    while (gatewayPatches.length) {
+        const patch = gatewayPatches.pop();
+        try {
+            if (patch && patch.owner[patch.method] === patch.wrapped) patch.owner[patch.method] = patch.original;
+        } catch {}
+    }
+}
+
+// ---- Presence store polling ------------------------------------------------------------
+//
+// With no events and no socket surface left, a store the UI itself reads can
+// still answer "who is online". Polling only ever CONFIRMS departures: an
+// 'unknown' status, or a user missing from a set we never saw them in, counts as
+// no information — inventing a departure is much worse than missing one.
+
+const POLL_MS = 20_000;
+const GATEWAY_RETRY_LIMIT = 12; // modules can load after the plugin does
+let pollTimer: any = null;
+let storePolls = 0;
+let storeSeenOnline: Set<string> | null = null;
+let presenceStoreLabel: string | null = null;
+let lastProbeReport = '';
+
+function presenceStore(api?: any): any {
+    const found =
+        findStore('PresenceStore', ['getStatus', 'getUserIds'], api) ??
+        findStore('PresenceStore', ['getStatus', 'getActivities'], api) ??
+        findStore('PresenceStore', ['getUserIds'], api) ??
+        findStore('PresenceStore', ['getStatus'], api);
+    if (found && !presenceStoreLabel) {
+        const methods = ['getStatus', 'getUserIds', 'getOnlineUserIds', 'getOnlineFriendIds', 'getActivities'].filter(
+            (m) => typeof found[m] === 'function',
+        );
+        presenceStoreLabel = 'PresenceStore' + (methods.length ? ' (' + methods.join(', ') + ')' : ' (no known methods)');
+    }
+    return found;
+}
+
+function readOnlineSet(store: any): Set<string> | null {
+    for (const method of ['getOnlineUserIds', 'getOnlineFriendIds', 'getUserIds']) {
+        try {
+            const value = store?.[method]?.();
+            if (Array.isArray(value)) return new Set(value.map(String));
+            if (value && typeof (value as any).size === 'number') return new Set(Array.from(value as any).map(String));
+        } catch {}
+    }
+    try {
+        const map = (store?.getState?.() as any)?.clientStatuses;
+        if (map && typeof map === 'object') {
+            const ids = new Set<string>();
+            for (const [id, status] of Object.entries(map)) {
+                if (status && Object.keys(status as any).length > 0) ids.add(String(id));
+            }
+            if (ids.size) return ids;
+        }
+    } catch {}
+    return null;
+}
+
+function readStatusFor(store: any, userId: string): string | null {
+    try {
+        const raw = store?.getStatus?.(userId);
+        const status = typeof raw === 'string' ? raw.toLowerCase() : null;
+        if (!status || status === 'unknown') return null;
+        return status;
+    } catch {}
+    return null;
+}
+
+function pollPresenceStore(api?: any): number {
+    storePolls++;
+    const store = presenceStore(api);
+    if (!store) return 0;
+    let departures = 0;
+    const online = readOnlineSet(store);
+    if (online) {
+        for (const id of online) handlePresence({ userId: id, status: 'online' });
+        if (storeSeenOnline) {
+            for (const id of storeSeenOnline) {
+                // Seen in the set before, absent now: a witnessed departure.
+                if (!online.has(id) && handlePresence({ userId: id, status: 'offline' })) departures++;
+            }
+        }
+        storeSeenOnline = online;
+        return departures;
+    }
+    for (const id of Array.from(seenOnlineAt.keys())) {
+        const status = readStatusFor(store, id);
+        if (status && handlePresence({ userId: id, status })) departures++;
+    }
+    return departures;
+}
+
+function startPresencePoll(api?: any) {
+    stopPresencePoll();
+    try {
+        pollPresenceStore(api);
+    } catch {}
+    pollTimer = setInterval(() => {
+        try {
+            // Late-loading modules: keep trying for a while after startup.
+            if (!gatewayPatches.length && gatewayAttempts < GATEWAY_RETRY_LIMIT) installGatewaySniff();
+            pollPresenceStore(api);
+        } catch {}
+    }, POLL_MS);
+    if (typeof pollTimer?.unref === 'function') pollTimer.unref();
+}
+
+function stopPresencePoll() {
+    if (pollTimer) {
+        try {
+            clearInterval(pollTimer);
+        } catch {}
+        pollTimer = null;
+    }
+}
+
+// One line a user can paste back, describing which surface (if any) works.
+function probeReport(): string {
+    const store = presenceStore();
+    const methods = store
+        ? ['getStatus', 'getUserIds', 'getOnlineUserIds', 'getOnlineFriendIds', 'getActivities'].filter((m) => typeof store?.[m] === 'function')
+        : [];
+    return (
+        'LastOnlineTracker ' + PLUGIN_VERSION + ' probe — flux: ' + (presenceCensusInstalled ? 'census on' : 'no census') +
+        ' · presence actions seen: ' + (presenceActionTypes.size ? Array.from(presenceActionTypes).join(',') : 'none') +
+        ' · gateway: ' + gatewayPatches.length + ' handler(s), ' + gatewayHandlerCalls + ' call(s), ' + gatewayPresenceFrames + ' presence frame(s)' +
+        ' · store: ' + (store ? methods.join(',') || 'found, no known methods' : 'not found') +
+        ' · polls: ' + storePolls +
+        ' · events: ' + presenceEventsSeen + ' · departures: ' + departuresRecorded
+    );
+}
+
 // ---- Dispatcher hookup -------------------------------------------------------------
 
 // Discord emits single-user PRESENCE_UPDATE and batched PRESENCE_UPDATES; we
@@ -334,6 +613,10 @@ function registerPresenceCleanup(off: (() => void) | undefined) {
 }
 
 function receivePresence(payload: any) {
+    if (payload && typeof payload === 'object') {
+        if (ingestedPayloads.has(payload)) return;
+        ingestedPayloads.add(payload);
+    }
     const updates = Array.isArray(payload?.updates) ? payload.updates
         : Array.isArray(payload?.presences) ? payload.presences
         : Array.isArray(payload?.users) ? payload.users
@@ -443,12 +726,20 @@ async function startPlugin(api: any) {
     } catch (e) {
         hostError('restore lastSeen failed', e);
     }
-    if (!subscribePresence(api)) hostError('no presence event API found; tracking is inactive');
+    // Three independent ways to see presence, because a single guessed API can
+    // simply not exist on a given build and fail silently.
+    const named = subscribePresence(api);
+    const census = installFluxCensus(api);
+    const gateway = installGatewaySniff();
     seedOnlineFromStore(api);
+    startPresencePoll(api);
+    if (!named && !census && !gateway) hostError('no presence surface found; tracking is inactive');
 }
 
 async function stopNext() {
     unsubscribePresence();
+    stopPresencePoll();
+    restoreGatewaySniff();
     cleanupFns.forEach((f) => {
         try { f(); } catch {}
     });
@@ -637,8 +928,49 @@ function buildSettingsComponent(api: any) {
                         label: 'No departures recorded yet',
                         subLabel: tracking
                             ? 'Tracking is active; this list fills as friends go offline.'
-                            : 'Tracking is inactive: presence events are not reaching the plugin.',
+                            : 'Tracking is inactive — open Detection below to see which presence source this build exposes.',
                     })])),
+            el(Group, { title: 'Detection', description: 'Which presence sources this build actually exposes. Nothing here means the list cannot fill.' },
+                el(InfoRow, {
+                    label: 'Version ' + PLUGIN_VERSION,
+                    subLabel: 'If this is not the version you installed, the new build did not load.',
+                }),
+                el(InfoRow, {
+                    label: 'Flux presence listeners',
+                    subLabel: presenceCleanups.length
+                        ? 'installed (' + (presenceCensusInstalled ? 'watching every dispatch' : 'named events only') + ')'
+                        : 'not installed — this host exposes no flux hook',
+                }),
+                el(InfoRow, {
+                    label: 'Presence actions seen',
+                    subLabel: presenceActionTypes.size
+                        ? Array.from(presenceActionTypes).join(', ')
+                        : 'none yet — presence may not be dispatched to plugins on this build',
+                }),
+                el(InfoRow, {
+                    label: 'Gateway socket',
+                    subLabel: gatewayPatches.length
+                        ? gatewayPatches.length + ' handler(s) watched · ' + gatewayHandlerCalls + ' call(s) · ' + gatewayPresenceFrames + ' presence frame(s)'
+                        : 'no inbound handler found' + (gatewayAttempts >= GATEWAY_RETRY_LIMIT ? ' (gave up)' : ' (still retrying)'),
+                }),
+                el(InfoRow, {
+                    label: 'Presence store',
+                    subLabel: presenceStoreLabel ?? 'not found' + (pollTimer ? ' · polling every ' + Math.round(POLL_MS / 1000) + 's' : ' · polling off'),
+                }),
+                el(InfoRow, {
+                    label: 'Run presence probe',
+                    subLabel: 'Re-check every source above now',
+                    onPress: () => {
+                        presenceStoreLabel = null;
+                        installFluxCensus(settingsApi);
+                        if (!gatewayPatches.length) installGatewaySniff();
+                        pollPresenceStore(settingsApi);
+                        lastProbeReport = probeReport();
+                        toast(lastProbeReport);
+                        settingsChangedCb?.();
+                    },
+                }),
+                lastProbeReport ? el(InfoRow, { label: 'Last probe', subLabel: lastProbeReport }) : null),
             el(Group, { title: 'History controls' },
                 el(InfoRow, {
                     label: 'Clear last-online history',
@@ -683,7 +1015,25 @@ __instance.__engine = {
         if (patch && typeof patch === 'object') Object.assign(cfg, patch);
     },
     MIN_ONLINE_MS,
-    getDiagnostics: () => ({ subscribed: presenceCleanups.length > 0, eventsSeen: presenceEventsSeen, departuresRecorded, lastEventAt: lastPresenceEventAt }),
+    getDiagnostics: () => ({
+        subscribed: presenceCleanups.length > 0,
+        eventsSeen: presenceEventsSeen,
+        departuresRecorded,
+        lastEventAt: lastPresenceEventAt,
+        censusInstalled: presenceCensusInstalled,
+        presenceActionTypes: Array.from(presenceActionTypes),
+        gatewayHandlers: gatewayPatches.length,
+        gatewayHandlerCalls,
+        gatewayPresenceFrames,
+        storeLabel: presenceStoreLabel,
+        storePolls,
+        polling: !!pollTimer,
+    }),
+    probeReport,
+    pollPresenceStore,
+    installGatewaySniff,
+    ingestGatewayFrame,
+    censusDispatch,
 };
 
 if (typeof plugin === 'function') {
