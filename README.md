@@ -22,8 +22,8 @@ https://8uvu.github.io/msglog/
 ```
 
 The bare repository URL installs **MessageLogger** (the build pins the root
-plugin to `dev.8uvu.message-logger` in `build.mjs`). The full list lives in
-`dist/index.json`.
+plugin to `dev.8uvu.message-logger` in `build.mjs`). Only the plugins listed in
+`PUBLISHED_PLUGIN_IDS` are advertised there — see *What gets published* below.
 
 ## Development
 
@@ -52,6 +52,23 @@ Artifacts are byte-reproducible: `build.mjs` pins the zip timestamps and
 `index.json` mean something. Before that, every build of the same source
 produced a different archive, which is why a published bundle could never be
 checked against a rebuild of it.
+
+## What gets published
+
+`dist/` is the entire public surface: `index.json` (the list Revenge shows for
+the repository URL), the root install, one folder URL per plugin, the pool zips,
+and a generated 404 page. Only the plugins in `PUBLISHED_PLUGIN_IDS` — declared
+in `build.mjs` — are advertised. Everything else still builds and stays
+installable by its own folder URL, but appears nowhere public: not in
+`index.json`, not on the 404 page (which is what a directory URL such as
+`/dev.8uvu.message-logger/` returns), and not in any file the site serves.
+`scripts/check-dist.cjs` fails the build if the published surface names an
+unlisted plugin, so this cannot regress by accident.
+
+This hides plugins from the **site**. It does not hide them from the
+**repository**: `https://github.com/8uvu/msglog` is public, so the plugin sources
+are readable there. Making the repository private — or publishing build output
+from a private repository — is the step that closes that one.
 
 ## Releasing
 

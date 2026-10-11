@@ -11,7 +11,7 @@
 // Exit codes: 0 live and matching, 1 mismatch, 2 not live yet (still
 // propagating / deploy not finished).
 const { createHash } = require('node:crypto');
-const { readFileSync, existsSync } = require('node:fs');
+const { readFileSync, existsSync, readdirSync } = require('node:fs');
 const { join } = require('node:path');
 const { unzipSync } = require('fflate');
 
@@ -57,14 +57,33 @@ function localInstall(id) {
     return { bundlePath, script: manifest.dist?.script ?? manifest.main ?? 'index.js' };
 }
 
+// Every plugin in the worktree, not just the advertised ones: a plugin left out
+// of index.json is still published at its own folder URL and its pool zip still
+// has to be the artifact built here. `listed` says whether index.json advertises
+// it, which decides whether an index entry is expected at all.
 function targets() {
     const out = [];
-    for (const [id, plugin] of Object.entries(local.plugins ?? {})) {
+    let ids = [];
+    try {
+        ids = readdirSync(join(DIST, '..', 'plugins'));
+    } catch {
+        ids = Object.keys(local.plugins ?? {});
+    }
+    for (const id of ids.sort()) {
         if (ONLY_ID && id !== ONLY_ID) continue;
-        for (const [version, entry] of Object.entries(plugin.versions ?? {})) {
-            if (ONLY_VERSION && version !== ONLY_VERSION) continue;
-            out.push({ id, version, entry, latest: plugin.channels?.latest });
-        }
+        const manifestPath = join(DIST, '..', 'plugins', id, 'manifest.json');
+        if (!existsSync(manifestPath)) continue;
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        const version = manifest.version;
+        if (!version || (ONLY_VERSION && version !== ONLY_VERSION)) continue;
+        const plugin = local.plugins?.[id] ?? null;
+        out.push({
+            id,
+            version,
+            entry: plugin?.versions?.[version] ?? null,
+            latest: plugin?.channels?.latest ?? version,
+            listed: Boolean(plugin),
+        });
     }
     return out;
 }
@@ -80,7 +99,7 @@ async function check(attempt) {
         pending.push(`index.json not served yet (${error.message})`);
     }
 
-    for (const { id, version, entry, latest } of targets()) {
+    for (const { id, version, entry, latest, listed } of targets()) {
         const label = `${id}@${version}`;
         // There are two different questions here, and conflating them made this
         // checker cry wolf on its first run. "Is the host serving what its own
@@ -92,44 +111,53 @@ async function check(attempt) {
         const isTarget = ONLY_VERSION ? version === ONLY_VERSION : version === latest;
         const published = liveIndex?.plugins?.[id] ?? null;
         const publishedEntry = published?.versions?.[version] ?? null;
+        // What the served bytes are measured against: the host's own index entry
+        // when there is one, otherwise the artifact this worktree built — the
+        // only reference that exists for a plugin left out of index.json.
+        const localZipPath = join(DIST, 'pool', `${id}@${version}.zip`);
+        const localZip = existsSync(localZipPath) ? readFileSync(localZipPath) : null;
+        const reference = publishedEntry?.sha256 ?? (localZip ? sha256(localZip) : null);
+        const referenceSize = publishedEntry?.size ?? localZip?.length ?? null;
 
-        if (liveIndex && !published) {
-            problems.push(`${label}: the published index does not list ${id}`);
-        } else if (liveIndex && !publishedEntry) {
-            pending.push(`${label}: not in the published index yet`);
-        } else if (publishedEntry && ONLY_VERSION && (publishedEntry.sha256 !== entry.sha256 || publishedEntry.size !== entry.size)) {
-            problems.push(
-                `${label}: the published artifact is not the one built here (${String(publishedEntry.sha256).slice(0, 12)}…/${publishedEntry.size} vs ${entry.sha256.slice(0, 12)}…/${entry.size})`,
-            );
-        }
-        if (published && !ONLY_VERSION && version === latest && published.channels?.latest !== version) {
-            pending.push(`${label}: published latest is ${published.channels?.latest}`);
+        if (listed) {
+            if (liveIndex && !published) problems.push(`${label}: the published index does not list ${id}`);
+            else if (liveIndex && !publishedEntry) pending.push(`${label}: not in the published index yet`);
+            else if (publishedEntry && entry && ONLY_VERSION && (publishedEntry.sha256 !== entry.sha256 || publishedEntry.size !== entry.size)) {
+                problems.push(
+                    `${label}: the published artifact is not the one built here (${String(publishedEntry.sha256).slice(0, 12)}…/${publishedEntry.size} vs ${entry.sha256.slice(0, 12)}…/${entry.size})`,
+                );
+            }
+            if (published && !ONLY_VERSION && version === latest && published.channels?.latest !== version) {
+                pending.push(`${label}: published latest is ${published.channels?.latest}`);
+            }
+        } else if (publishedEntry) {
+            // Leaving a plugin out of index.json is a deliberate act; the site
+            // advertising it again means the build or the deploy regressed.
+            problems.push(`${label}: the published index advertises ${id}, which this build leaves unlisted`);
         }
 
-        const local = localInstall(id);
+        const install = localInstall(id);
         try {
             const zip = await get(`/pool/${label}.zip`, attempt > 0);
             const served = sha256(zip);
-            if (publishedEntry && (served !== publishedEntry.sha256 || zip.length !== publishedEntry.size)) {
-                problems.push(
-                    `${label}: the host serves ${served.slice(0, 12)}… (${zip.length} bytes) while its own index advertises ${String(publishedEntry.sha256).slice(0, 12)}… (${publishedEntry.size} bytes)`,
-                );
-            } else if (!publishedEntry && served !== entry.sha256) {
-                pending.push(`${label}: served zip is not the built zip yet`);
-            }
-            if (!local) continue;
-            if (ONLY_VERSION) {
-                // Releasing: the artifact must be byte-for-byte the one built and
-                // verified here, which the pinned zip timestamps now guarantee.
-                if (served !== entry.sha256 || zip.length !== entry.size) {
-                    problems.push(`${label}: the released artifact is not the one built here (${served.slice(0, 12)}… vs ${entry.sha256.slice(0, 12)}…)`);
+            if (reference && (served !== reference || zip.length !== referenceSize)) {
+                const against = publishedEntry ? "the host's own index" : 'this build';
+                // Releasing, or contradicting the host's own index, is a real
+                // failure; anything else is the deploy still propagating.
+                if (publishedEntry || ONLY_VERSION) {
+                    problems.push(
+                        `${label}: the served zip does not match ${against} (${served.slice(0, 12)}… vs ${String(reference).slice(0, 12)}…)`,
+                    );
+                } else if (isTarget) {
+                    pending.push(`${label}: served zip is not the built zip yet`);
                 }
-            } else if (isTarget) {
-                // Otherwise compare the code inside the archive, which is stable
-                // across container metadata (zips published before the
-                // timestamps were pinned still hold the right bundle).
-                const inner = Buffer.from(unzipSync(new Uint8Array(zip))[local.script] ?? new Uint8Array());
-                if (sha256(inner) !== sha256(readFileSync(local.bundlePath))) {
+            } else if (isTarget && !ONLY_VERSION && install) {
+                // Compare the code inside the archive too: containers published
+                // before the zip timestamps were pinned still hold the right
+                // bundle, and this is what catches "different code, same
+                // version".
+                const inner = Buffer.from(unzipSync(new Uint8Array(zip))[install.script] ?? new Uint8Array());
+                if (sha256(inner) !== sha256(readFileSync(install.bundlePath))) {
                     problems.push(`${label}: the published archive contains different code than this build`);
                 }
             }
@@ -143,7 +171,7 @@ async function check(attempt) {
         // with, so it is the honest reference for a host that has published
         // half a deploy: a mismatch with its own hash is broken, a mismatch
         // with our local build is just the host not having caught up.
-        if (!local) continue;
+        if (!install) continue;
         try {
             const servedManifest = JSON.parse((await get(`/${id}/manifest.json`, attempt > 0)).toString('utf8'));
             const servedHash = sha256(await get(`/${id}/index.js`, attempt > 0));
@@ -151,8 +179,11 @@ async function check(attempt) {
                 problems.push(`${label}: ${id}/manifest.json advertises hash ${String(servedManifest.hash).slice(0, 12)}… but serves ${servedHash.slice(0, 12)}…`);
             } else if (servedManifest.version !== version) {
                 pending.push(`${label}: folder install still serves ${servedManifest.version}`);
-            } else if (servedHash !== sha256(readFileSync(local.bundlePath))) {
-                pending.push(`${label}: folder-URL bundle is not the built bundle yet`);
+            } else if (servedHash !== sha256(readFileSync(install.bundlePath))) {
+                // The folder URL is how an unlisted plugin is installed, so for
+                // it this is the primary check rather than a formality.
+                if (listed || ONLY_VERSION) problems.push(`${label}: the folder-URL bundle is not the built bundle`);
+                else pending.push(`${label}: folder-URL bundle is not the built bundle yet`);
             }
         } catch (error) {
             pending.push(`${label}: folder install not served yet (${error.message})`);
