@@ -4,36 +4,60 @@ Custom Revenge plugins by 8uvu.
 
 ## Plugins
 
-### Message Logger
-Saves deleted and edited messages to a persistent on-device log, keeps deleted
-rows visible in chat (red text or a red overlay, Equicord-style), shows an
-inline edit history with optional word diffs, flags ghost pings, caches deleted
-attachments, and ships a searchable viewer with sorting, paging and
-import/export.
+| Plugin | What it does | Install URL |
+| --- | --- | --- |
+| **MessageLogger** | Saves deleted and edited messages to a persistent on-device log, flags ghost pings, and ships a searchable viewer with edit diffs, image caching and import/export. | `https://8uvu.github.io/msglog/dev.8uvu.message-logger/` |
+| **FakeDM** | Injects fake messages, calls, system messages, reactions and embeds into any DM or channel, with batch conversations that survive a restart. | `https://8uvu.github.io/msglog/dev.8uvu.fake-dm/` |
+| **Clean URLs** | Strips tracking parameters (`utm_*`, `fbclid`, `gclid`, `igshid`, ...) from links in messages, with blacklist and whitelist modes. | `https://8uvu.github.io/msglog/dev.8uvu.clean-urls/` |
+| **PlatformSpoofer** | Spoofs the platform Discord shows next to your name (desktop, web, iOS, Xbox, ...). | `https://8uvu.github.io/msglog/dev.8uvu.platform-spoofer/` |
+| **LastOnlineTracker** | Records when friends go offline — a "last seen" Discord never shows you. Only counts departures you witnessed, so server syncs cannot fake them. | `https://8uvu.github.io/msglog/dev.8uvu.last-online-tracker/` |
+| **HostProbe** | Diagnostic: reports which loader and APIs your Revenge build actually exposes (globals, flux, storage, toasts, file module). | `https://8uvu.github.io/msglog/dev.8uvu.host-probe/` |
+| **QuickCheck** | Diagnostic: pops a native alert with your device's host diagnosis the moment the plugin is enabled. | `https://8uvu.github.io/msglog/dev.8uvu.quick-check/` |
 
-Filters: ignored users/channels/servers, whitelists, muted servers, categories
-and channels, "always log DMs" / "always log the open channel", bot / webhook /
-self ignores, a message cap and time-based cleanup.
+Add a single plugin by pasting its install URL in Revenge (Settings > Revenge >
+Plugins), or add the whole repository:
 
-**Install:** Add this plugin URL in Revenge (Settings > Revenge > Plugins):
-```
-https://8uvu.github.io/msglog/dev.8uvu.message-logger/
-```
-
-### Clean URLs
-Strips tracking parameters (`utm_*`, `fbclid`, `gclid`, `igshid`, ...) from
-links in messages as they arrive, with blacklist and whitelist modes.
-
-**Install:**
-```
-https://8uvu.github.io/msglog/dev.8uvu.clean-urls/
-```
-
-## Repository
-
-Add the whole repo as a plugin repository in Revenge:
 ```
 https://8uvu.github.io/msglog/
 ```
-Note: pasting the bare URL installs the repo's *root* plugin (currently
-whichever plugin the build lists first — check `dist/index.json`).
+
+The bare repository URL installs **MessageLogger** (the build pins the root
+plugin to `dev.8uvu.message-logger` in `build.mjs`). The full list lives in
+`dist/index.json`.
+
+## Development
+
+```bash
+pnpm install
+node build.mjs            # write dist/ (pool zips, folder installs, index.json)
+node scripts/verify-all.mjs   # integrity + every plugin verifier + typecheck
+node scripts/verify-live.cjs  # does the published host serve this build?
+```
+
+`verify-all.mjs` is the single source of truth for "is this shippable", and it
+is what CI runs. It covers:
+
+- **dist integrity** (`scripts/check-dist.cjs`) — every artifact `index.json`
+  advertises exists with the hash and size it claims, the zipped bundle is
+  byte-identical to the folder-URL install, the checked-in manifest matches the
+  built version, and the root install points at the pinned plugin.
+- **every plugin verifier** — each plugin's `verify.cjs` boots the built bundle
+  through a Revenge-shaped host and drives the real handlers, interceptors and
+  row painters. They assert behaviour, not implementation.
+- **typecheck** — `tsc --noEmit` over the plugin sources (non-strict; the host
+  objects are `any` by nature).
+
+## Releasing
+
+```bash
+node scripts/release.mjs dev.8uvu.message-logger patch "Fix unseen-message edits"
+```
+
+That bumps the manifest and `PLUGIN_VERSION`, rebuilds, runs every check,
+commits the plugin directory, pushes to `master`, then waits for the published
+host to serve the new bundle. It exits non-zero if the deploy never catches up,
+so a fix cannot silently sit unpublished — which is exactly how a release went
+missing before.
+
+CI on `master` runs the same checks in `verify` and only then deploys to GitHub
+Pages; a failing check blocks the deploy instead of publishing a broken build.

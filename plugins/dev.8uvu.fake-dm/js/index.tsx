@@ -966,7 +966,7 @@ function buildSettingsComponent() {
         const [durationMin, setDurationMin] = React.useState('2');
         // system tab
         const [sysSenderId, setSysSenderId] = React.useState('');
-        const [sysType, setSysType] = React.useState<number | null>(6);
+        const [sysType, setSysType] = React.useState(6 as number | null);
         const [sysContent, setSysContent] = React.useState('');
         // react tab
         const [reactMsgId, setReactMsgId] = React.useState('');

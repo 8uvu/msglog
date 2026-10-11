@@ -21,6 +21,10 @@ import esbuild from "esbuild";
 
 const BASE_URL = "https://8uvu.github.io/msglog";
 
+// Root-install target: pasting the bare repository URL fetches this plugin, so
+// it must not be left to whichever directory readdir happens to return first.
+const ROOT_PLUGIN_ID = "dev.8uvu.message-logger";
+
 const artifacts = [];
 const plugins = [];
 
@@ -131,7 +135,7 @@ for (let plug of await readdir("./plugins", { withFileTypes: true })) {
 
 // Root-level plugin install: pasting https://8uvu.github.io/msglog/ straight
 // into Revenge's plugin URL box fetches <root>/manifest.json then <root>/index.js.
-const primary = plugins[0];
+const primary = plugins.find((p) => p.id === ROOT_PLUGIN_ID) ?? plugins[0];
 if (primary) {
     const { id, manifest } = primary;
     const script = (manifest.dist && manifest.dist.script) || manifest.main || "index.js";
