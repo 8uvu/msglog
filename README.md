@@ -10,7 +10,7 @@ Custom Revenge plugins by 8uvu.
 | **FakeDM** | Injects fake messages, calls, system messages, reactions and embeds into any DM or channel, with batch conversations that survive a restart. | `https://8uvu.github.io/msglog/dev.8uvu.fake-dm/` |
 | **Clean URLs** | Strips tracking parameters (`utm_*`, `fbclid`, `gclid`, `igshid`, ...) from links in messages, with blacklist and whitelist modes. | `https://8uvu.github.io/msglog/dev.8uvu.clean-urls/` |
 | **PlatformSpoofer** | Spoofs the platform Discord shows next to your name (desktop, web, iOS, Xbox, ...). | `https://8uvu.github.io/msglog/dev.8uvu.platform-spoofer/` |
-| **LastOnlineTracker** | Records when friends go offline — a "last seen" Discord never shows you. Only counts departures you witnessed, so server syncs cannot fake them. | `https://8uvu.github.io/msglog/dev.8uvu.last-online-tracker/` |
+| **LastOnlineTracker** | Records when friends go offline — a "last seen" Discord never shows you. Only counts departures you witnessed, so server syncs cannot fake them. Watches three independent presence sources and reports in its settings which ones this build actually exposes. | `https://8uvu.github.io/msglog/dev.8uvu.last-online-tracker/` |
 | **HostProbe** | Diagnostic: reports which loader and APIs your Revenge build actually exposes (globals, flux, storage, toasts, file module). | `https://8uvu.github.io/msglog/dev.8uvu.host-probe/` |
 | **QuickCheck** | Diagnostic: pops a native alert with your device's host diagnosis the moment the plugin is enabled. | `https://8uvu.github.io/msglog/dev.8uvu.quick-check/` |
 
